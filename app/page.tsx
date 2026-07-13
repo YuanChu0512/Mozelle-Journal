@@ -1,15 +1,24 @@
 "use client";
 
 import Image from "next/image";
+import { flushSync } from "react-dom";
 import {
   useEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent,
 } from "react";
 
 type Theme = "day" | "night";
+type ArticleOrigin = "latest" | "card";
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => {
+    finished: Promise<void>;
+  };
+};
 
 const navItems = [
   { label: "首页", href: "#top" },
@@ -22,7 +31,33 @@ const navItems = [
 const filters = ["全部", "电子", "超频", "硬件", "游戏与次元"] as const;
 type Filter = (typeof filters)[number];
 
-const articles = [
+export type Article = {
+  id: string;
+  category: Filter;
+  code: string;
+  date: string;
+  readTime: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  content: string[];
+  contentHtml?: string;
+  coverUrl?: string | null;
+};
+
+type PublicSettings = {
+  siteTitle: string;
+  tagline: string;
+  bio: string;
+};
+
+const fallbackSettings: PublicSettings = {
+  siteTitle: "Mozelle Journal",
+  tagline: "在旅途与源石之间，持续记录。",
+  bio: "电子专业学生，记录硬件、超频、游戏、Cosplay 与二次元世界。",
+};
+
+const fallbackArticles: Article[] = [
   {
     id: "ddr5-stability",
     category: "超频" as Filter,
@@ -144,15 +179,26 @@ const collections = [
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("day");
   const [filter, setFilter] = useState<Filter>("全部");
+  const [articles, setArticles] = useState<Article[]>(fallbackArticles);
+  const [siteSettings, setSiteSettings] = useState<PublicSettings>(fallbackSettings);
   const [menuOpen, setMenuOpen] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<Theme>("night");
-  const [selectedArticle, setSelectedArticle] = useState<
-    (typeof articles)[number] | null
-  >(null);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [articleOrigin, setArticleOrigin] = useState<ArticleOrigin>("card");
+  const [transitionArticleId, setTransitionArticleId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState("top");
+  const [sectionJump, setSectionJump] = useState<{
+    key: number;
+    label: string;
+  } | null>(null);
   const articleDialog = useRef<HTMLDialogElement>(null);
+  const heroSection = useRef<HTMLElement>(null);
   const heroVisual = useRef<HTMLDivElement>(null);
   const trailCanvas = useRef<HTMLCanvasElement>(null);
+  const rhodesParticleCanvas = useRef<HTMLCanvasElement>(null);
+  const wireSphereCanvas = useRef<HTMLCanvasElement>(null);
+  const sectionJumpTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -160,6 +206,171 @@ export default function Home() {
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
+
+  useEffect(() => {
+    const revealNodes = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-reveal]"),
+    );
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const liteMotion =
+      reducedMotion || document.documentElement.dataset.motion === "lite";
+
+    if (liteMotion || !("IntersectionObserver" in window)) {
+      revealNodes.forEach((node) => node.classList.add("is-revealed"));
+      return;
+    }
+
+    revealNodes.forEach((node) => node.classList.add("reveal-pending"));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const node = entry.target as HTMLElement;
+          node.classList.add("is-revealed");
+          observer.unobserve(node);
+          window.setTimeout(() => {
+            node.classList.remove("reveal-pending", "is-revealed");
+          }, 920);
+        });
+      },
+      { rootMargin: "0px 0px -9% 0px", threshold: 0.08 },
+    );
+    revealNodes.forEach((node) => observer.observe(node));
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const sections = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-section]"),
+    );
+    if (!("IntersectionObserver" in window)) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((first, second) => second.intersectionRatio - first.intersectionRatio);
+        const section = visible[0]?.target as HTMLElement | undefined;
+        if (section?.dataset.section) setActiveSection(section.dataset.section);
+      },
+      { rootMargin: "-22% 0px -66% 0px", threshold: [0, 0.1] },
+    );
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (sectionJumpTimer.current) window.clearTimeout(sectionJumpTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (CSS.supports("animation-timeline: scroll()")) return;
+
+    const progress = document.querySelector<HTMLElement>(".page-scroll-progress");
+    if (!progress) return;
+    let frame = 0;
+
+    const updateProgress = () => {
+      frame = 0;
+      const scrollable = Math.max(
+        1,
+        document.documentElement.scrollHeight - window.innerHeight,
+      );
+      const value = Math.min(1, Math.max(0, window.scrollY / scrollable));
+      progress.style.transform = `scaleX(${value})`;
+    };
+    const requestUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(updateProgress);
+    };
+
+    updateProgress();
+    window.addEventListener("scroll", requestUpdate, { passive: true });
+    window.addEventListener("resize", requestUpdate, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", requestUpdate);
+      window.removeEventListener("resize", requestUpdate);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    const hero = heroSection.current;
+    if (!hero) return;
+    let frame = 0;
+
+    const updateHeroStory = () => {
+      frame = 0;
+      const bounds = hero.getBoundingClientRect();
+      const progress = Math.min(
+        1,
+        Math.max(0, -bounds.top / Math.max(1, bounds.height * 0.72)),
+      );
+      hero.style.setProperty("--hero-grid-y", `${progress * 22}px`);
+      hero.style.setProperty("--hero-copy-y", `${progress * -7}px`);
+      hero.classList.toggle("is-scroll-engaged", progress > 0.055);
+    };
+    const requestUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(updateHeroStory);
+    };
+
+    updateHeroStory();
+    window.addEventListener("scroll", requestUpdate, { passive: true });
+    window.addEventListener("resize", requestUpdate, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", requestUpdate);
+      window.removeEventListener("resize", requestUpdate);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/posts", {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("文章服务暂不可用");
+        return response.json() as Promise<{ posts?: Article[] }>;
+      })
+      .then((payload) => {
+        if (payload.posts?.length) setArticles(payload.posts);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // Sites 设计预览与未配置 API 的环境继续使用内置文章。
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/settings", {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("站点设置服务暂不可用");
+        return response.json() as Promise<{ settings?: Partial<PublicSettings> }>;
+      })
+      .then((payload) => {
+        if (payload.settings) {
+          setSiteSettings((current) => ({ ...current, ...payload.settings }));
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -192,6 +403,7 @@ export default function Home() {
     if (
       !visual ||
       !canvas ||
+      theme !== "day" ||
       document.documentElement.dataset.motion === "lite" ||
       window.matchMedia("(pointer: coarse), (prefers-reduced-motion: reduce)")
         .matches
@@ -379,13 +591,891 @@ export default function Home() {
     };
   }, [theme]);
 
+  useEffect(() => {
+    const visual = heroSection.current;
+    const canvas = rhodesParticleCanvas.current;
+    if (!visual || !canvas) return;
+
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) return;
+
+    if (theme !== "night" || transitioning) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    type RhodesParticle = {
+      ox: number;
+      oy: number;
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      phase: number;
+      size: number;
+      bright: boolean;
+    };
+
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const lowPower =
+      document.documentElement.dataset.motion === "lite" || coarsePointer;
+    const particles: RhodesParticle[] = [];
+    const pointer = { x: -10_000, y: -10_000, active: false };
+    const sourceImage = new window.Image();
+    sourceImage.decoding = "async";
+
+    let frame = 0;
+    let lastFrame = 0;
+    let width = 0;
+    let height = 0;
+    let visualRect = visual.getBoundingClientRect();
+    let imageReady = false;
+    let destroyed = false;
+    let assembledOnce = false;
+    let assemblyStartedAt = 0;
+    let inView = visualRect.bottom > 0 && visualRect.top < window.innerHeight;
+
+    const drawParticles = (now: number, update = true) => {
+      context.clearRect(0, 0, width, height);
+      if (!particles.length) return;
+
+      const pointerRadius = lowPower ? 52 : 76;
+      const pointerRadiusSquared = pointerRadius * pointerRadius;
+      const assembling = assemblyStartedAt > 0 && now - assemblyStartedAt < 1150;
+      const spring = lowPower ? 0.024 : assembling ? 0.042 : 0.029;
+      const friction = lowPower ? 0.8 : 0.83;
+      const drift = lowPower ? 0.12 : 0.32;
+
+      context.globalCompositeOperation = "source-over";
+      context.beginPath();
+      for (const particle of particles) {
+        if (update) {
+          if (pointer.active && !coarsePointer && !prefersReducedMotion) {
+            const dx = particle.x - pointer.x;
+            const dy = particle.y - pointer.y;
+            const distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > 0.1 && distanceSquared < pointerRadiusSquared) {
+              const distance = Math.sqrt(distanceSquared);
+              const falloff = 1 - distance / pointerRadius;
+              const force = falloff * falloff * 2.35;
+              particle.vx += (dx / distance) * force;
+              particle.vy += (dy / distance) * force;
+            }
+          }
+
+          const targetX =
+            particle.ox + Math.sin(now * 0.00072 + particle.phase) * drift;
+          const targetY =
+            particle.oy + Math.cos(now * 0.00061 + particle.phase) * drift;
+          particle.vx = (particle.vx + (targetX - particle.x) * spring) * friction;
+          particle.vy = (particle.vy + (targetY - particle.y) * spring) * friction;
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+        }
+        context.rect(particle.x, particle.y, particle.size, particle.size);
+      }
+      context.fillStyle = lowPower
+        ? "rgba(130, 255, 165, .8)"
+        : "rgba(118, 255, 158, .9)";
+      context.fill();
+
+      context.beginPath();
+      for (let index = 0; index < particles.length; index += 1) {
+        const particle = particles[index];
+        if (!particle.bright) continue;
+        const glowSize = particle.size * 1.7;
+        context.rect(
+          particle.x - glowSize * 0.22,
+          particle.y - glowSize * 0.22,
+          glowSize,
+          glowSize,
+        );
+      }
+      context.fillStyle = "rgba(224, 255, 118, .98)";
+      context.fill();
+    };
+
+    const animate = (now: number) => {
+      if (destroyed) return;
+      const frameInterval = lowPower ? 1000 / 16 : 1000 / 32;
+      if (now - lastFrame >= frameInterval) {
+        lastFrame = now;
+        drawParticles(now);
+      }
+      frame = window.requestAnimationFrame(animate);
+    };
+
+    const buildParticles = () => {
+      if (!imageReady || !width || !height) return;
+
+      const sampleSize = lowPower ? 200 : 280;
+      const offscreen = document.createElement("canvas");
+      offscreen.width = sampleSize;
+      offscreen.height = sampleSize;
+      const offscreenContext = offscreen.getContext("2d", {
+        willReadFrequently: true,
+      });
+      if (!offscreenContext) return;
+      offscreenContext.clearRect(0, 0, sampleSize, sampleSize);
+      offscreenContext.drawImage(sourceImage, 0, 0, sampleSize, sampleSize);
+      const pixels = offscreenContext.getImageData(
+        0,
+        0,
+        sampleSize,
+        sampleSize,
+      ).data;
+
+      const maxParticles = lowPower ? 520 : 1650;
+      let step = lowPower ? 4 : 2;
+      let samples: Array<[number, number, number]> = [];
+      const collectSamples = () => {
+        const next: Array<[number, number, number]> = [];
+        for (let y = 0; y < sampleSize; y += step) {
+          for (let x = 0; x < sampleSize; x += step) {
+            const alpha = pixels[(y * sampleSize + x) * 4 + 3];
+            if (alpha > 72) next.push([x, y, alpha]);
+          }
+        }
+        return next;
+      };
+      samples = collectSamples();
+      while (samples.length > maxParticles && step < 12) {
+        step += 1;
+        samples = collectSamples();
+      }
+
+      const compactLayout = width < 940;
+      const logoSize = Math.min(
+        width * (compactLayout ? 0.94 : 0.44),
+        height * (compactLayout ? 0.5 : 0.72),
+      );
+      const centerX = width * (compactLayout ? 0.5 : 0.245);
+      const centerY = height * (compactLayout ? 0.34 : 0.365);
+      const offsetX = centerX - logoSize / 2;
+      const offsetY = centerY - logoSize / 2;
+      const scale = logoSize / sampleSize;
+      const shouldAssemble =
+        !assembledOnce && !prefersReducedMotion && !lowPower;
+      if (shouldAssemble) assemblyStartedAt = performance.now();
+      const scatter = prefersReducedMotion ? 0 : lowPower ? 10 : 24;
+
+      particles.length = 0;
+      samples.forEach(([sampleX, sampleY], index) => {
+        const ox = offsetX + sampleX * scale;
+        const oy = offsetY + sampleY * scale;
+        const assemblyAngle =
+          (index / Math.max(1, samples.length)) * Math.PI * 2 +
+          Math.sin(index * 1.83) * 0.34;
+        const assemblyRadius =
+          logoSize * (0.48 + ((index * 17) % 31) / 31 * 0.34);
+        particles.push({
+          ox,
+          oy,
+          x: shouldAssemble
+            ? centerX + Math.cos(assemblyAngle) * assemblyRadius
+            : ox + (Math.random() - 0.5) * scatter,
+          y: shouldAssemble
+            ? centerY + Math.sin(assemblyAngle) * assemblyRadius * 0.72
+            : oy + (Math.random() - 0.5) * scatter,
+          vx: 0,
+          vy: 0,
+          phase: Math.random() * Math.PI * 2,
+          size: Math.max(1.05, Math.min(2.15, scale * 0.72)),
+          bright: index % 19 === 0,
+        });
+      });
+
+      assembledOnce = true;
+      drawParticles(performance.now(), false);
+    };
+
+    const resizeCanvas = () => {
+      visualRect = visual.getBoundingClientRect();
+      width = visualRect.width;
+      height = visualRect.height;
+      const pixelRatio = Math.min(
+        window.devicePixelRatio || 1,
+        lowPower ? 1 : 1.25,
+      );
+      canvas.width = Math.max(1, Math.round(width * pixelRatio));
+      canvas.height = Math.max(1, Math.round(height * pixelRatio));
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      buildParticles();
+    };
+
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      pointer.x = event.clientX - visualRect.left;
+      pointer.y = event.clientY - visualRect.top;
+      pointer.active = true;
+    };
+    const handlePointerLeave = () => {
+      pointer.active = false;
+    };
+    const updateAnimationState = () => {
+      if (document.hidden || !inView || prefersReducedMotion) {
+        if (frame) window.cancelAnimationFrame(frame);
+        frame = 0;
+      } else if (!frame) {
+        frame = window.requestAnimationFrame(animate);
+      }
+    };
+    const handleVisibility = () => updateAnimationState();
+
+    sourceImage.onload = () => {
+      if (destroyed) return;
+      imageReady = true;
+      buildParticles();
+    };
+    sourceImage.src = "/rhodes-island-logo.png";
+
+    resizeCanvas();
+    const resizeObserver = new ResizeObserver(resizeCanvas);
+    resizeObserver.observe(visual);
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      updateAnimationState();
+    });
+    visibilityObserver.observe(visual);
+    if (!coarsePointer && !prefersReducedMotion) {
+      visual.addEventListener("pointermove", handlePointerMove, { passive: true });
+      visual.addEventListener("pointerleave", handlePointerLeave);
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    updateAnimationState();
+
+    return () => {
+      destroyed = true;
+      resizeObserver.disconnect();
+      visibilityObserver.disconnect();
+      visual.removeEventListener("pointermove", handlePointerMove);
+      visual.removeEventListener("pointerleave", handlePointerLeave);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (frame) window.cancelAnimationFrame(frame);
+      context.clearRect(0, 0, width, height);
+      sourceImage.onload = null;
+    };
+  }, [theme, transitioning]);
+
+  useEffect(() => {
+    const visual = heroVisual.current;
+    const canvas = wireSphereCanvas.current;
+    if (!visual || !canvas) return;
+
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) return;
+
+    if (theme !== "night") {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    type Vector3 = { x: number; y: number; z: number; phase: number };
+    type Edge = { a: number; b: number; accent: boolean };
+    type ProjectedPoint = {
+      x: number;
+      y: number;
+      z: number;
+      depth: number;
+      index: number;
+    };
+    type ProjectedEdge = {
+      start: ProjectedPoint;
+      end: ProjectedPoint;
+      depth: number;
+      accent: boolean;
+      index: number;
+    };
+
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const lowPower =
+      document.documentElement.dataset.motion === "lite" || coarsePointer;
+    const nodeCount = prefersReducedMotion ? 20 : lowPower ? 26 : 44;
+    const chordCount = prefersReducedMotion ? 6 : lowPower ? 12 : 26;
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const clamp = (value: number, minimum = 0, maximum = 1) =>
+      Math.max(minimum, Math.min(maximum, value));
+    const normalize = (point: Pick<Vector3, "x" | "y" | "z">) => {
+      const length = Math.hypot(point.x, point.y, point.z) || 1;
+      return {
+        x: point.x / length,
+        y: point.y / length,
+        z: point.z / length,
+      };
+    };
+    const nodes: Vector3[] = Array.from({ length: nodeCount }, (_, index) => {
+      const y = 1 - ((index + 0.5) / nodeCount) * 2;
+      const radius = Math.sqrt(Math.max(0, 1 - y * y));
+      const angle = goldenAngle * index + Math.sin(index * 2.17) * 0.055;
+      const irregularity = 1 + Math.sin(index * 4.13) * 0.026;
+      const normalized = normalize({
+        x: Math.cos(angle) * radius * irregularity,
+        y: y * (1 + Math.cos(index * 2.73) * 0.02),
+        z: Math.sin(angle) * radius * irregularity,
+      });
+      return {
+        ...normalized,
+        phase: index * 1.731 + (index % 5) * 0.47,
+      };
+    });
+
+    const createRandom = (seed: number) => {
+      let value = seed >>> 0;
+      return () => {
+        value += 0x6d2b79f5;
+        let result = value;
+        result = Math.imul(result ^ (result >>> 15), result | 1);
+        result ^= result + Math.imul(result ^ (result >>> 7), result | 61);
+        return ((result ^ (result >>> 14)) >>> 0) / 4_294_967_296;
+      };
+    };
+
+    const edgeKey = (a: number, b: number) =>
+      `${Math.min(a, b)}-${Math.max(a, b)}`;
+
+    const createSurfaceEdges = (): Edge[] => {
+      const edges: Edge[] = [];
+      const seen = new Set<string>();
+      const neighbourCount = lowPower ? 3 : 4;
+      nodes.forEach((node, index) => {
+        const neighbours = nodes
+          .map((candidate, candidateIndex) => ({
+            index: candidateIndex,
+            distance:
+              (node.x - candidate.x) ** 2 +
+              (node.y - candidate.y) ** 2 +
+              (node.z - candidate.z) ** 2,
+          }))
+          .filter((candidate) => candidate.index !== index)
+          .sort((first, second) => first.distance - second.distance)
+          .slice(0, neighbourCount);
+        neighbours.forEach((neighbour) => {
+          const key = edgeKey(index, neighbour.index);
+          if (seen.has(key)) return;
+          seen.add(key);
+          edges.push({
+            a: index,
+            b: neighbour.index,
+            accent: edges.length % 9 === 0,
+          });
+        });
+      });
+      return edges;
+    };
+
+    const surfaceEdges = createSurfaceEdges();
+    const surfaceEdgeKeys = new Set(
+      surfaceEdges.map((edge) => edgeKey(edge.a, edge.b)),
+    );
+
+    const createFaces = () => {
+      const adjacency = Array.from(
+        { length: nodeCount },
+        () => new Set<number>(),
+      );
+      surfaceEdges.forEach((edge) => {
+        adjacency[edge.a].add(edge.b);
+        adjacency[edge.b].add(edge.a);
+      });
+      const faces: Array<[number, number, number]> = [];
+      const faceLimit = lowPower ? 10 : 24;
+      for (let a = 0; a < nodeCount && faces.length < faceLimit; a += 1) {
+        const neighbours = [...adjacency[a]].filter((value) => value > a);
+        for (let first = 0; first < neighbours.length; first += 1) {
+          for (
+            let second = first + 1;
+            second < neighbours.length;
+            second += 1
+          ) {
+            const b = neighbours[first];
+            const c = neighbours[second];
+            if (adjacency[b].has(c)) faces.push([a, b, c]);
+            if (faces.length >= faceLimit) break;
+          }
+          if (faces.length >= faceLimit) break;
+        }
+      }
+      return faces;
+    };
+
+    const faces = createFaces();
+
+    const createChords = (seed: number): Edge[] => {
+      const random = createRandom(seed);
+      const edges: Edge[] = [];
+      const seen = new Set<string>();
+      let attempts = 0;
+      while (edges.length < chordCount && attempts < chordCount * 90) {
+        attempts += 1;
+        const a = Math.floor(random() * nodeCount);
+        const b = Math.floor(random() * nodeCount);
+        if (a === b) continue;
+        const key = edgeKey(a, b);
+        if (seen.has(key) || surfaceEdgeKeys.has(key)) continue;
+        const first = nodes[a];
+        const second = nodes[b];
+        const dot = first.x * second.x + first.y * second.y + first.z * second.z;
+        if (dot < -0.72 || dot > 0.34) continue;
+        seen.add(key);
+        edges.push({ a, b, accent: edges.length % 5 === 0 });
+      }
+      for (let index = 0; edges.length < chordCount; index += 1) {
+        edges.push({
+          a: index % nodeCount,
+          b: (index * 7 + Math.floor(nodeCount * 0.41)) % nodeCount,
+          accent: index % 5 === 0,
+        });
+      }
+      return edges;
+    };
+
+    let topologySeed = 41;
+    let previousChords = createChords(topologySeed);
+    topologySeed += 37;
+    let nextChords = createChords(topologySeed);
+    let topologyStartedAt = performance.now();
+    let frame = 0;
+    let lastFrame = 0;
+    let lastRaf = 0;
+    let slowFrames = 0;
+    let frameInterval = prefersReducedMotion
+      ? Number.POSITIVE_INFINITY
+      : lowPower
+        ? 1000 / 20
+        : 1000 / 44;
+    let width = 0;
+    let height = 0;
+    let centerX = 0;
+    let centerY = 0;
+    let sphereRadius = 0;
+    let volumeGradient: CanvasGradient | null = null;
+    let destroyed = false;
+    let focusPulse = 0;
+    const initialBounds = visual.getBoundingClientRect();
+    let inView =
+      initialBounds.bottom > 0 && initialBounds.top < window.innerHeight;
+
+    const rotatePoint = (
+      point: Pick<Vector3, "x" | "y" | "z">,
+      yaw: number,
+      pitch: number,
+      roll: number,
+    ) => {
+      const cosYaw = Math.cos(yaw);
+      const sinYaw = Math.sin(yaw);
+      const xAfterYaw = point.x * cosYaw + point.z * sinYaw;
+      const zAfterYaw = -point.x * sinYaw + point.z * cosYaw;
+
+      const cosPitch = Math.cos(pitch);
+      const sinPitch = Math.sin(pitch);
+      const yAfterPitch = point.y * cosPitch - zAfterYaw * sinPitch;
+      const zAfterPitch = point.y * sinPitch + zAfterYaw * cosPitch;
+
+      const cosRoll = Math.cos(roll);
+      const sinRoll = Math.sin(roll);
+      return {
+        x: xAfterYaw * cosRoll - yAfterPitch * sinRoll,
+        y: xAfterYaw * sinRoll + yAfterPitch * cosRoll,
+        z: zAfterPitch,
+      };
+    };
+
+    const projectPoint = (
+      point: Pick<Vector3, "x" | "y" | "z">,
+      index: number,
+    ): ProjectedPoint => {
+      const cameraDistance = 3.05;
+      const perspective = cameraDistance / (cameraDistance - point.z);
+      return {
+        x: centerX + point.x * sphereRadius * perspective,
+        y: centerY + point.y * sphereRadius * perspective,
+        z: point.z,
+        depth: clamp((point.z + 1) * 0.5),
+        index,
+      };
+    };
+
+    const interpolateOnSphere = (
+      from: Pick<Vector3, "x" | "y" | "z">,
+      to: Pick<Vector3, "x" | "y" | "z">,
+      progress: number,
+    ) =>
+      normalize({
+        x: from.x + (to.x - from.x) * progress,
+        y: from.y + (to.y - from.y) * progress,
+        z: from.z + (to.z - from.z) * progress,
+      });
+
+    const convexHull = (points: ProjectedPoint[]) => {
+      if (points.length <= 3) return [...points];
+      const sorted = [...points].sort((first, second) =>
+        first.x === second.x ? first.y - second.y : first.x - second.x,
+      );
+      const cross = (
+        origin: ProjectedPoint,
+        first: ProjectedPoint,
+        second: ProjectedPoint,
+      ) =>
+        (first.x - origin.x) * (second.y - origin.y) -
+        (first.y - origin.y) * (second.x - origin.x);
+      const lower: ProjectedPoint[] = [];
+      sorted.forEach((point) => {
+        while (
+          lower.length >= 2 &&
+          cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0
+        ) {
+          lower.pop();
+        }
+        lower.push(point);
+      });
+      const upper: ProjectedPoint[] = [];
+      [...sorted].reverse().forEach((point) => {
+        while (
+          upper.length >= 2 &&
+          cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0
+        ) {
+          upper.pop();
+        }
+        upper.push(point);
+      });
+      lower.pop();
+      upper.pop();
+      return lower.concat(upper);
+    };
+
+    const drawEdge = (edge: ProjectedEdge, kind: "surface" | "chord") => {
+      const depthCurve = edge.depth * edge.depth;
+      const isSurface = kind === "surface";
+      const baseAlpha = isSurface
+        ? 0.085 + depthCurve * (edge.accent ? 0.8 : 0.6)
+        : 0.075 + depthCurve * (edge.accent ? 0.58 : 0.4);
+      const focusBoost =
+        0.9 + edge.depth * 0.12 + focusPulse * edge.depth * 0.05;
+      const alpha = baseAlpha * focusBoost;
+      context.beginPath();
+      context.moveTo(edge.start.x, edge.start.y);
+      context.lineTo(edge.end.x, edge.end.y);
+      context.lineWidth = isSurface
+        ? 0.42 + edge.depth * 1.22 + focusPulse * edge.depth * 0.12 + (edge.accent ? 0.42 : 0)
+        : 0.36 + edge.depth * 0.72 + focusPulse * edge.depth * 0.08 + (edge.accent ? 0.24 : 0);
+      context.strokeStyle = edge.accent
+        ? `rgba(205, 255, 82, ${clamp(alpha, 0, 0.94)})`
+        : `rgba(84, 239, 132, ${clamp(alpha, 0, 0.78)})`;
+      context.stroke();
+    };
+
+    const drawSphere = (now: number) => {
+      context.clearRect(0, 0, width, height);
+      if (!width || !height) return;
+      focusPulse = lowPower ? 0 : 0.5 + Math.sin(now * 0.00058) * 0.5;
+
+      const topologyDuration = lowPower ? 4300 : 2900;
+      let topologyProgress = (now - topologyStartedAt) / topologyDuration;
+      if (topologyProgress >= 1) {
+        previousChords = nextChords;
+        topologySeed += 37;
+        nextChords = createChords(topologySeed);
+        topologyStartedAt = now;
+        topologyProgress = 0;
+      }
+      const morph =
+        0.5 - Math.cos(Math.max(0, Math.min(1, topologyProgress)) * Math.PI) * 0.5;
+
+      const yaw = now * 0.00022;
+      const pitch = 0.2 + Math.sin(now * 0.00015) * 0.18;
+      const roll = -0.1 + Math.cos(now * 0.00011) * 0.14;
+      const driftAmount = lowPower ? 0.008 : 0.018;
+      const rotatedNodes = nodes.map((node) => {
+        const firstDrift = Math.sin(now * 0.00042 + node.phase) * driftAmount;
+        const secondDrift =
+          Math.cos(now * 0.00031 + node.phase * 1.37) * driftAmount * 0.72;
+        const deformed = normalize({
+          x: node.x + node.y * firstDrift - node.z * secondDrift,
+          y: node.y - node.x * firstDrift * 0.7 + node.z * secondDrift,
+          z: node.z + node.x * secondDrift - node.y * firstDrift * 0.35,
+        });
+        return rotatePoint(deformed, yaw, pitch, roll);
+      });
+      const projectedNodes = rotatedNodes.map((point, index) =>
+        projectPoint(point, index),
+      );
+
+      const hull = convexHull(projectedNodes);
+      if (hull.length > 2) {
+        context.beginPath();
+        context.moveTo(hull[0].x, hull[0].y);
+        hull.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+        context.closePath();
+        context.fillStyle = volumeGradient ?? "rgba(30, 121, 63, 0.06)";
+        context.fill();
+      }
+
+      const projectedFaces = faces
+        .map((face) => ({
+          points: face.map((index) => projectedNodes[index]),
+          depth:
+            face.reduce((sum, index) => sum + projectedNodes[index].depth, 0) /
+            face.length,
+        }))
+        .sort((first, second) => first.depth - second.depth);
+      projectedFaces.forEach((face) => {
+        context.beginPath();
+        context.moveTo(face.points[0].x, face.points[0].y);
+        context.lineTo(face.points[1].x, face.points[1].y);
+        context.lineTo(face.points[2].x, face.points[2].y);
+        context.closePath();
+        context.fillStyle = `rgba(94, 255, 145, ${0.006 + face.depth ** 3 * 0.045})`;
+        context.fill();
+      });
+
+      const dynamicChords = previousChords.map((fromEdge, index) => {
+        const toEdge = nextChords[index % nextChords.length];
+        const startOnSphere = interpolateOnSphere(
+          nodes[fromEdge.a],
+          nodes[toEdge.a],
+          morph,
+        );
+        const endOnSphere = interpolateOnSphere(
+          nodes[fromEdge.b],
+          nodes[toEdge.b],
+          morph,
+        );
+        const startRotated = rotatePoint(startOnSphere, yaw, pitch, roll);
+        const endRotated = rotatePoint(endOnSphere, yaw, pitch, roll);
+        const start = projectPoint(startRotated, fromEdge.a);
+        const end = projectPoint(endRotated, fromEdge.b);
+        return {
+          start,
+          end,
+          depth: clamp((startRotated.z + endRotated.z + 2) * 0.25),
+          accent: fromEdge.accent || toEdge.accent,
+          index,
+        };
+      });
+      dynamicChords.sort((first, second) => first.depth - second.depth);
+
+      const projectedSurface = surfaceEdges
+        .map((edge, index) => ({
+          start: projectedNodes[edge.a],
+          end: projectedNodes[edge.b],
+          depth:
+            (projectedNodes[edge.a].depth + projectedNodes[edge.b].depth) * 0.5,
+          accent: edge.accent,
+          index,
+        }))
+        .sort((first, second) => first.depth - second.depth);
+
+      context.globalCompositeOperation = "source-over";
+      dynamicChords.forEach((edge) => drawEdge(edge, "chord"));
+      projectedSurface.forEach((edge) => drawEdge(edge, "surface"));
+
+      context.beginPath();
+      if (hull.length > 1) {
+        context.moveTo(hull[0].x, hull[0].y);
+        hull.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+        context.closePath();
+        context.lineWidth = 0.95;
+        context.strokeStyle = "rgba(171, 255, 100, 0.34)";
+        context.stroke();
+      }
+
+      [...projectedNodes]
+        .sort((first, second) => first.depth - second.depth)
+        .forEach((node) => {
+          const radius =
+            0.58 + node.depth * 1.85 + focusPulse * node.depth * 0.18;
+          context.beginPath();
+          context.arc(node.x, node.y, radius, 0, Math.PI * 2);
+          context.fillStyle =
+            node.index % 9 === 0
+              ? `rgba(215, 255, 90, ${0.18 + node.depth * 0.78})`
+              : `rgba(119, 255, 156, ${0.1 + node.depth * 0.7})`;
+          context.fill();
+        });
+
+      if (!lowPower && !prefersReducedMotion) {
+        dynamicChords.forEach((edge) => {
+          if (edge.index % 5 !== 0) return;
+          const travel = (now * 0.0002 + edge.index * 0.173) % 1;
+          const x = edge.start.x + (edge.end.x - edge.start.x) * travel;
+          const y = edge.start.y + (edge.end.y - edge.start.y) * travel;
+          context.beginPath();
+          context.arc(x, y, 0.9 + edge.depth * 1.15, 0, Math.PI * 2);
+          context.fillStyle = `rgba(224, 255, 117, ${0.25 + edge.depth * 0.62})`;
+          context.fill();
+        });
+      }
+    };
+
+    const animate = (now: number) => {
+      if (destroyed) return;
+      if (lastRaf) {
+        const rafDuration = now - lastRaf;
+        slowFrames = rafDuration > 25 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
+        if (!lowPower && slowFrames > 32) frameInterval = 1000 / 28;
+      }
+      lastRaf = now;
+      if (now - lastFrame >= frameInterval) {
+        lastFrame = now;
+        drawSphere(now);
+      }
+      frame = window.requestAnimationFrame(animate);
+    };
+
+    const resizeCanvas = () => {
+      const bounds = visual.getBoundingClientRect();
+      width = bounds.width;
+      height = bounds.height;
+      const compactLayout = width < 720;
+      centerX = width * (compactLayout ? 0.5 : 0.59);
+      centerY = height * (compactLayout ? 0.48 : 0.44);
+      sphereRadius = Math.min(
+        width * (compactLayout ? 0.38 : 0.36),
+        height * (compactLayout ? 0.31 : 0.39),
+      );
+      const pixelRatio = Math.min(
+        window.devicePixelRatio || 1,
+        lowPower ? 1 : 1.15,
+      );
+      canvas.width = Math.max(1, Math.round(width * pixelRatio));
+      canvas.height = Math.max(1, Math.round(height * pixelRatio));
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      volumeGradient = context.createRadialGradient(
+        centerX - sphereRadius * 0.18,
+        centerY - sphereRadius * 0.2,
+        sphereRadius * 0.08,
+        centerX,
+        centerY,
+        sphereRadius * 1.08,
+      );
+      volumeGradient.addColorStop(0, "rgba(132, 255, 158, 0.095)");
+      volumeGradient.addColorStop(0.58, "rgba(50, 173, 91, 0.047)");
+      volumeGradient.addColorStop(1, "rgba(9, 58, 30, 0.006)");
+      drawSphere(performance.now());
+    };
+
+    const updateAnimationState = () => {
+      if (document.hidden || !inView || prefersReducedMotion) {
+        if (frame) window.cancelAnimationFrame(frame);
+        frame = 0;
+      } else if (!frame) {
+        lastRaf = 0;
+        frame = window.requestAnimationFrame(animate);
+      }
+    };
+    const handleVisibility = () => updateAnimationState();
+
+    resizeCanvas();
+    const resizeObserver = new ResizeObserver(resizeCanvas);
+    resizeObserver.observe(visual);
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      updateAnimationState();
+    });
+    visibilityObserver.observe(visual);
+    document.addEventListener("visibilitychange", handleVisibility);
+    updateAnimationState();
+
+    return () => {
+      destroyed = true;
+      resizeObserver.disconnect();
+      visibilityObserver.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (frame) window.cancelAnimationFrame(frame);
+      context.clearRect(0, 0, width, height);
+    };
+  }, [theme]);
+
   const visibleArticles = useMemo(
     () =>
       filter === "全部"
         ? articles
         : articles.filter((article) => article.category === filter),
-    [filter],
+    [filter, articles],
   );
+
+  const latestArticle = articles[0] ?? fallbackArticles[0];
+
+  useEffect(() => {
+    if (
+      document.documentElement.dataset.motion === "lite" ||
+      window.matchMedia("(pointer: coarse), (prefers-reduced-motion: reduce)")
+        .matches
+    ) {
+      return;
+    }
+
+    const cards = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-tilt-card]"),
+    );
+    const cleanups = cards.map((card) => {
+      let frame = 0;
+      let pointerX = 0;
+      let pointerY = 0;
+
+      const render = () => {
+        frame = 0;
+        const bounds = card.getBoundingClientRect();
+        const normalizedX = Math.min(
+          1,
+          Math.max(-1, ((pointerX - bounds.left) / bounds.width - 0.5) * 2),
+        );
+        const normalizedY = Math.min(
+          1,
+          Math.max(-1, ((pointerY - bounds.top) / bounds.height - 0.5) * 2),
+        );
+        card.style.setProperty("--card-tilt-x", `${normalizedY * -3.2}deg`);
+        card.style.setProperty("--card-tilt-y", `${normalizedX * 4.2}deg`);
+        card.style.setProperty("--card-glow-x", `${(normalizedX + 1) * 50}%`);
+        card.style.setProperty("--card-glow-y", `${(normalizedY + 1) * 50}%`);
+      };
+      const handleMove = (event: globalThis.PointerEvent) => {
+        if (event.pointerType === "touch") return;
+        pointerX = event.clientX;
+        pointerY = event.clientY;
+        if (!frame) frame = window.requestAnimationFrame(render);
+      };
+      const handleLeave = () => {
+        if (frame) window.cancelAnimationFrame(frame);
+        frame = 0;
+        card.style.setProperty("--card-tilt-x", "0deg");
+        card.style.setProperty("--card-tilt-y", "0deg");
+        card.style.setProperty("--card-glow-x", "50%");
+        card.style.setProperty("--card-glow-y", "50%");
+      };
+
+      card.addEventListener("pointermove", handleMove, { passive: true });
+      card.addEventListener("pointerleave", handleLeave);
+      return () => {
+        card.removeEventListener("pointermove", handleMove);
+        card.removeEventListener("pointerleave", handleLeave);
+        if (frame) window.cancelAnimationFrame(frame);
+      };
+    });
+
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [filter, articles.length]);
+
+  const articleSourceStyle = (
+    articleId: string,
+    origin: ArticleOrigin,
+  ): CSSProperties | undefined =>
+    transitionArticleId === articleId &&
+    articleOrigin === origin &&
+    selectedArticle?.id !== articleId
+      ? { viewTransitionName: "article-shared" }
+      : undefined;
+
+  const articleDialogStyle: CSSProperties | undefined =
+    transitionArticleId && selectedArticle?.id === transitionArticleId
+      ? { viewTransitionName: "article-shared" }
+      : undefined;
 
   const applyTheme = (nextTheme: Theme) => {
     document.documentElement.dataset.theme = nextTheme;
@@ -424,14 +1514,91 @@ export default function Home() {
     window.setTimeout(finishTransition, totalDuration);
   };
 
-  const openArticle = (article: (typeof articles)[number]) => {
-    setSelectedArticle(article);
-    window.setTimeout(() => articleDialog.current?.showModal(), 0);
+  const openArticle = (article: Article, origin: ArticleOrigin) => {
+    const transitionDocument = document as ViewTransitionDocument;
+    const richMotion =
+      document.documentElement.dataset.motion !== "lite" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!richMotion || !transitionDocument.startViewTransition) {
+      setArticleOrigin(origin);
+      setSelectedArticle(article);
+      window.setTimeout(() => articleDialog.current?.showModal(), 0);
+      return;
+    }
+
+    flushSync(() => {
+      setArticleOrigin(origin);
+      setTransitionArticleId(article.id);
+    });
+    const transition = transitionDocument.startViewTransition(() => {
+      flushSync(() => setSelectedArticle(article));
+      articleDialog.current?.showModal();
+    });
+    void transition.finished
+      .catch(() => undefined)
+      .finally(() => setTransitionArticleId(null));
   };
 
   const closeArticle = () => {
-    articleDialog.current?.close();
-    setSelectedArticle(null);
+    if (!selectedArticle) return;
+    const transitionDocument = document as ViewTransitionDocument;
+    const richMotion =
+      document.documentElement.dataset.motion !== "lite" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!richMotion || !transitionDocument.startViewTransition) {
+      articleDialog.current?.close();
+      setSelectedArticle(null);
+      return;
+    }
+
+    flushSync(() => setTransitionArticleId(selectedArticle.id));
+    const transition = transitionDocument.startViewTransition(() => {
+      articleDialog.current?.close();
+      flushSync(() => setSelectedArticle(null));
+    });
+    void transition.finished
+      .catch(() => undefined)
+      .finally(() => setTransitionArticleId(null));
+  };
+
+  const handleSectionNavigation = (event: MouseEvent<HTMLAnchorElement>) => {
+    const href = event.currentTarget.getAttribute("href");
+    if (!href?.startsWith("#")) return;
+
+    const targetId = decodeURIComponent(href.slice(1)) || "top";
+    const target = document.getElementById(targetId);
+    if (!target) return;
+
+    event.preventDefault();
+    setMenuOpen(false);
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const liteMotion =
+      reducedMotion || document.documentElement.dataset.motion === "lite";
+
+    if (!liteMotion) {
+      if (sectionJumpTimer.current) {
+        window.clearTimeout(sectionJumpTimer.current);
+      }
+      const label =
+        event.currentTarget.dataset.transitionLabel || targetId.toUpperCase();
+      setSectionJump({ key: Date.now(), label });
+      sectionJumpTimer.current = window.setTimeout(
+        () => setSectionJump(null),
+        780,
+      );
+    }
+
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "start",
+      });
+    });
+    window.history.replaceState(null, "", href);
   };
 
   return (
@@ -439,6 +1606,39 @@ export default function Home() {
       id="top"
       className={`site-shell theme-${theme} ${transitioning ? "is-switching" : ""}`}
     >
+      <span className="page-scroll-progress" aria-hidden="true" />
+      <aside className="journey-rail" aria-hidden="true">
+        <span className="journey-track" />
+        <div>
+          {navItems.map((item, index) => {
+            const sectionId = item.href.slice(1);
+            return (
+              <span
+                className={activeSection === sectionId ? "is-active" : ""}
+                key={item.href}
+              >
+                {String(index + 1).padStart(2, "0")}
+              </span>
+            );
+          })}
+        </div>
+        <small>{activeSection.toUpperCase()}</small>
+      </aside>
+
+      {sectionJump && (
+        <div
+          key={sectionJump.key}
+          className="section-jump-transition"
+          aria-hidden="true"
+        >
+          <span className="section-jump-veil" />
+          <span className="section-jump-line" />
+          <span className="section-jump-code">
+            {"// "}{sectionJump.label}
+          </span>
+        </div>
+      )}
+
       <div
         className={`theme-transition ${transitioning ? "is-active" : ""} to-${transitionTarget}`}
         aria-hidden="true"
@@ -457,12 +1657,18 @@ export default function Home() {
       </div>
 
       <header className="site-header">
-        <a className="brand" href="#top" aria-label="返回首页">
+        <a
+          className="brand"
+          href="#top"
+          aria-label="返回首页"
+          data-transition-label="TOP"
+          onClick={handleSectionNavigation}
+        >
           <span className="brand-mark" aria-hidden="true">
             <span />
           </span>
           <span className="brand-copy">
-            <strong>MOZELLE</strong>
+            <strong>{siteSettings.siteTitle}</strong>
             <small>{"// DIMENSION"}</small>
           </span>
         </a>
@@ -484,9 +1690,10 @@ export default function Home() {
             <a
               href={item.href}
               key={item.href}
-              className={index === 0 ? "is-active" : ""}
-              aria-current={index === 0 ? "page" : undefined}
-              onClick={() => setMenuOpen(false)}
+              className={activeSection === item.href.slice(1) ? "is-active" : ""}
+              aria-current={activeSection === item.href.slice(1) ? "page" : undefined}
+              data-transition-label={item.href.slice(1).toUpperCase()}
+              onClick={handleSectionNavigation}
             >
               <span>{String(index + 1).padStart(2, "0")}</span>
               {item.label}
@@ -503,15 +1710,26 @@ export default function Home() {
           aria-pressed={theme === "night"}
         >
           <span className="toggle-track" aria-hidden="true">
-            <span className="toggle-day">☼</span>
-            <span className="toggle-night">M3</span>
-            <span className="toggle-orb" />
+            <span className="toggle-thumb" />
+            <span className="toggle-option toggle-day">
+              <span className="toggle-symbol">☼</span>
+              <span className="toggle-option-label">DAY</span>
+            </span>
+            <span className="toggle-option toggle-night">
+              <span className="toggle-symbol toggle-m3">M3</span>
+              <span className="toggle-option-label">NIGHT</span>
+            </span>
           </span>
-          <span className="toggle-label">{theme === "day" ? "DAY" : "NIGHT"}</span>
         </button>
       </header>
 
-      <section className="hero" aria-labelledby="hero-title">
+      <section
+        ref={heroSection}
+        className="hero"
+        aria-labelledby="hero-title"
+        data-section="top"
+        data-section-state={activeSection === "top" ? "active" : undefined}
+      >
         <div className="hero-ambient" aria-hidden="true">
           <span className="ambient-grid" />
           <span className="ambient-wave" />
@@ -521,6 +1739,12 @@ export default function Home() {
           <span className="crystal crystal-two" />
           <span className="crystal crystal-three" />
         </div>
+
+        <canvas
+          ref={rhodesParticleCanvas}
+          className="rhodes-particle-logo"
+          aria-hidden="true"
+        />
 
         <div className="hero-copy">
           <div className="hero-kicker">
@@ -544,15 +1768,24 @@ export default function Home() {
             )}
           </h1>
           <p className="hero-description">
-            电子专业学生的个人博客，分享硬件、超频、游戏、Cosplay 与二次元。
-            把拆解问题的过程，写成可以反复查阅的记录。
+            {siteSettings.bio} 把拆解问题的过程，写成可以反复查阅的记录。
           </p>
           <div className="hero-actions">
-            <a className="button button-primary" href="#articles">
+            <a
+              className="button button-primary"
+              href="#articles"
+              data-transition-label="ARTICLES"
+              onClick={handleSectionNavigation}
+            >
               <span className="button-spark" aria-hidden="true">✦</span>
               进入博客
             </a>
-            <a className="button button-secondary" href="#lab">
+            <a
+              className="button button-secondary"
+              href="#lab"
+              data-transition-label="LAB NOTES"
+              onClick={handleSectionNavigation}
+            >
               查看实验记录
               <span aria-hidden="true">↗</span>
             </a>
@@ -579,10 +1812,19 @@ export default function Home() {
                 <circle className="magic-seal" cx="95" cy="50" r="3.4" />
                 <circle className="magic-seal" cx="50" cy="95" r="3.4" />
                 <circle className="magic-seal" cx="5" cy="50" r="3.4" />
-                <text className="magic-rune" x="50" y="7.1">✦</text>
-                <text className="magic-rune" x="94.8" y="52.1">☽</text>
-                <text className="magic-rune" x="50" y="97.1">◇</text>
-                <text className="magic-rune" x="5" y="52.1">✧</text>
+                <g className="magic-rune-icon magic-icon-star" transform="translate(50 5)">
+                  <path d="M0 -2.2 L0.58 -0.58 L2.2 0 L0.58 0.58 L0 2.2 L-0.58 0.58 L-2.2 0 L-0.58 -0.58 Z" />
+                </g>
+                <g className="magic-rune-icon magic-icon-moon" transform="translate(95 50)">
+                  <path transform="translate(0.68 0)" d="M0.9 -2.05 A2.25 2.25 0 1 0 0.9 2.05 A1.72 1.72 0 0 1 0.9 -2.05 Z" />
+                </g>
+                <g className="magic-rune-icon magic-icon-sun" transform="translate(50 95)">
+                  <circle cx="0" cy="0" r="0.95" />
+                  <path d="M0 -2.45 V-1.55 M0 1.55 V2.45 M-2.45 0 H-1.55 M1.55 0 H2.45 M-1.73 -1.73 L-1.1 -1.1 M1.1 1.1 L1.73 1.73 M1.73 -1.73 L1.1 -1.1 M-1.1 1.1 L-1.73 1.73" />
+                </g>
+                <g className="magic-rune-icon magic-icon-spark" transform="translate(5 50)">
+                  <path d="M0 -2.15 C0.22 -0.62 0.62 -0.22 2.15 0 C0.62 0.22 0.22 0.62 0 2.15 C-0.22 0.62 -0.62 0.22 -2.15 0 C-0.62 -0.22 -0.22 -0.62 0 -2.15 Z" />
+                </g>
                 <text className="magic-rune magic-rune-small" x="76" y="19">ᚨ</text>
                 <text className="magic-rune magic-rune-small" x="82" y="82">ᛇ</text>
                 <text className="magic-rune magic-rune-small" x="18" y="82">ᚱ</text>
@@ -606,85 +1848,15 @@ export default function Home() {
             <span className="sigil-label day-label-two">TRAVEL RECORD / ACTIVE</span>
           </div>
 
-          <div className="hero-sigil sigil-night">
-            <span className="originium-shell">
-              <span className="originium-surface">
-                <span className="originium-facet facet-one" />
-                <span className="originium-facet facet-two" />
-                <span className="originium-facet facet-three" />
-                <span className="originium-heart" />
-              </span>
-            </span>
-            <span className="mesh-scene">
-              <span className="mesh-rotor">
-                <svg className="mesh-depth-plane mesh-plane-a" viewBox="0 0 100 100" focusable="false">
-                  <polygon points="50,5 72,11 88,29 93,50 84,72 63,91 37,91 16,72 7,50 12,29 28,11" />
-                  <polyline points="50,5 50,95" />
-                  <polyline points="12,29 88,71" />
-                  <polyline points="7,50 93,50" />
-                  <polyline points="16,72 84,28" />
-                  <polygon points="50,18 72,34 72,66 50,82 28,66 28,34" />
-                </svg>
-                <svg className="mesh-depth-plane mesh-plane-b" viewBox="0 0 100 100" focusable="false">
-                  <polygon points="50,7 75,17 91,40 88,65 68,87 40,93 17,76 8,50 18,23" />
-                  <polyline points="18,23 88,65" />
-                  <polyline points="8,50 91,40" />
-                  <polyline points="17,76 75,17" />
-                  <polyline points="40,93 50,7" />
-                  <polygon points="50,22 70,38 66,64 44,78 27,57 31,34" />
-                </svg>
-                <svg className="ark-mesh" viewBox="0 0 100 100" focusable="false">
-              <g className="mesh-orbiting">
-                <g className="mesh-shell">
-                  <polygon points="50,4 72,10 88,24 96,48 90,70 73,89 47,96 25,89 9,70 4,48 10,27 28,10" />
-                  <polygon points="50,13 72,19 83,35 82,58 70,77 48,84 28,76 16,57 17,37 33,19" />
-                  <polyline points="50,4 50,13 50,20 58,68 70,77 73,89" />
-                  <polyline points="28,10 33,19 34,31 28,50 28,76 25,89" />
-                  <polyline points="72,10 72,19 66,31 70,51 82,58 90,70" />
-                  <polyline points="10,27 17,37 28,50 39,69 48,84 47,96" />
-                  <polyline points="88,24 83,35 70,51 58,68 48,84 25,89" />
-                </g>
-                <g className="mesh-nodes mesh-nodes-outer">
-                  <circle cx="50" cy="4" r="1.1" /><circle cx="72" cy="10" r="1.1" />
-                  <circle cx="88" cy="24" r="1.1" /><circle cx="96" cy="48" r="1.1" />
-                  <circle cx="90" cy="70" r="1.1" /><circle cx="73" cy="89" r="1.1" />
-                  <circle cx="47" cy="96" r="1.1" /><circle cx="25" cy="89" r="1.1" />
-                  <circle cx="9" cy="70" r="1.1" /><circle cx="4" cy="48" r="1.1" />
-                  <circle cx="10" cy="27" r="1.1" /><circle cx="28" cy="10" r="1.1" />
-                </g>
-              </g>
-              <g className="mesh-lattice">
-                <polygon points="50,20 66,31 70,51 58,68 39,69 28,50 34,31" />
-                <polyline points="4,48 28,50 50,50 70,51 96,48" />
-                <polyline points="10,27 34,31 66,31 88,24" />
-                <polyline points="9,70 39,69 58,68 90,70" />
-                <polyline points="28,10 50,20 72,10 66,31 83,35 96,48" />
-                <polyline points="4,48 17,37 33,19 50,4 72,19 88,24" />
-                <polyline points="9,70 28,50 50,20 70,51 90,70" />
-                <polyline points="25,89 39,69 50,50 66,31 88,24" />
-                <polyline points="10,27 28,50 58,68 73,89" />
-                <g className="mesh-nodes mesh-nodes-inner">
-                  <circle cx="34" cy="31" r="0.9" /><circle cx="66" cy="31" r="0.9" />
-                  <circle cx="70" cy="51" r="0.9" /><circle cx="58" cy="68" r="0.9" />
-                  <circle cx="39" cy="69" r="0.9" /><circle cx="28" cy="50" r="0.9" />
-                </g>
-              </g>
-                </svg>
-              </span>
-            </span>
-            <span className="rhodes-emblem">
-              <Image
-                className="rhodes-logo-image"
-                src="/rhodes-island-logo.webp"
-                alt=""
-                width={640}
-                height={640}
-                unoptimized
-              />
-            </span>
+          <div className="hero-sigil sigil-night" aria-hidden="true">
             <span className="sigil-label night-label-one">ORIGINIUM / REACTIVE</span>
             <span className="sigil-label night-label-two">RHODES / TERMINAL 03</span>
           </div>
+          <canvas
+            ref={wireSphereCanvas}
+            className="wire-sphere-canvas"
+            aria-hidden="true"
+          />
           <canvas ref={trailCanvas} className="sigil-interaction" />
           <Image
             className="hero-character character-elaina"
@@ -711,24 +1883,36 @@ export default function Home() {
         <button
           className="latest-card"
           type="button"
-          onClick={() => openArticle(articles[0])}
-          aria-label="阅读最新文章：DDR5 超频：从电压、时序到稳定性"
+          style={articleSourceStyle(latestArticle.id, "latest")}
+          onClick={() => openArticle(latestArticle, "latest")}
+          aria-label={`阅读最新文章：${latestArticle.title}`}
         >
           <span className="latest-meta">
             <span>✥ 最新文章</span>
-            <span>2026.07.12</span>
+            <span>{latestArticle.date}</span>
           </span>
-          <strong>DDR5 超频：从电压、时序到稳定性</strong>
+          <strong>{latestArticle.title}</strong>
           <span className="latest-arrow" aria-hidden="true">→</span>
         </button>
-        <a className="scroll-cue" href="#articles" aria-label="向下浏览文章">
+        <a
+          className="scroll-cue"
+          href="#articles"
+          aria-label="向下浏览文章"
+          data-transition-label="ARTICLES"
+          onClick={handleSectionNavigation}
+        >
           <span />
           SCROLL
         </a>
       </section>
 
-      <section id="articles" className="content-section articles-section">
-        <div className="section-heading">
+      <section
+        id="articles"
+        className="content-section articles-section"
+        data-section="articles"
+        data-section-state={activeSection === "articles" ? "active" : undefined}
+      >
+        <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">01 / ARTICLES</span>
             <h2>技术文章</h2>
@@ -736,7 +1920,12 @@ export default function Home() {
           <p>从原理出发，也保留每一次调试中真正有用的细节。</p>
         </div>
 
-        <div className="filter-bar" role="group" aria-label="文章分类筛选">
+        <div
+          className="filter-bar"
+          role="group"
+          aria-label="文章分类筛选"
+          data-reveal="up"
+        >
           {filters.map((item) => (
             <button
               key={item}
@@ -750,9 +1939,15 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="article-grid" aria-live="polite">
+        <div className="article-grid" aria-live="polite" data-reveal="up">
           {visibleArticles.map((article, index) => (
-            <article className="article-card" key={article.id}>
+            <article
+              className="article-card"
+              key={article.id}
+              data-tilt-card
+              style={articleSourceStyle(article.id, "card")}
+            >
+              <span className="card-specular" aria-hidden="true" />
               <div className="article-card-top">
                 <span>{article.code}</span>
                 <span>{article.date}</span>
@@ -770,7 +1965,7 @@ export default function Home() {
                   <div>
                     {article.tags.map((tag) => <span key={tag}>#{tag}</span>)}
                   </div>
-                  <button type="button" onClick={() => openArticle(article)}>
+                  <button type="button" onClick={() => openArticle(article, "card")}>
                     阅读 <span aria-hidden="true">↗</span>
                   </button>
                 </div>
@@ -780,15 +1975,20 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="lab" className="content-section lab-section">
-        <div className="section-heading">
+      <section
+        id="lab"
+        className="content-section lab-section"
+        data-section="lab"
+        data-section-state={activeSection === "lab" ? "active" : undefined}
+      >
+        <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">02 / LAB NOTES</span>
             <h2>实验与超频笔记</h2>
           </div>
           <p>不只展示结果，也记录失败参数、判断过程和下一步。</p>
         </div>
-        <div className="lab-console">
+        <div className="lab-console" data-reveal="up">
           <div className="console-header">
             <span><i /> MOZELLE_LAB</span>
             <span>STATUS / ONLINE</span>
@@ -814,17 +2014,27 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="collection" className="content-section collection-section">
-        <div className="section-heading">
+      <section
+        id="collection"
+        className="content-section collection-section"
+        data-section="collection"
+        data-section-state={activeSection === "collection" ? "active" : undefined}
+      >
+        <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">03 / DIMENSION</span>
             <h2>次元收藏</h2>
           </div>
           <p>角色、游戏与 Cosplay，是技术之外同样认真保存的世界。</p>
         </div>
-        <div className="collection-grid">
+        <div className="collection-grid" data-reveal="up">
           {collections.map((item) => (
-            <article className={`collection-card ${item.className}`} key={item.number}>
+            <article
+              className={`collection-card ${item.className}`}
+              key={item.number}
+              data-tilt-card
+            >
+              <span className="card-specular" aria-hidden="true" />
               <span className="collection-number">{item.number}</span>
               <div className="collection-art" aria-hidden="true">
                 <span className="collection-orbit" />
@@ -840,36 +2050,49 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="about" className="content-section about-section">
-        <div className="about-code" aria-hidden="true">
+      <section
+        id="about"
+        className="content-section about-section"
+        data-section="about"
+        data-section-state={activeSection === "about" ? "active" : undefined}
+      >
+        <div className="about-code" aria-hidden="true" data-reveal="left">
           <span>ABOUT / MOZELLE</span>
           <strong>EE</strong>
           <span>STUDENT · MAKER · PLAYER</span>
         </div>
-        <div className="about-copy">
+        <div className="about-copy" data-reveal="right">
           <span className="section-index">04 / ABOUT</span>
           <h2>你好，我是 Mozelle。</h2>
-          <p>
-            我是一名电子专业学生，喜欢把复杂的硬件问题拆开、验证，再用自己的语言重新讲清楚。
-            这里既有电路与超频的技术记录，也有游戏、二次元和 Cosplay 带来的灵感。
-          </p>
+          <p>{siteSettings.bio}</p>
           <p>
             这个博客不是一份完成的说明书，而是一张持续生长的地图：保存走过的弯路，也标记下一次想抵达的地方。
           </p>
-          <a href="#articles" className="text-link">
+          <a
+            href="#articles"
+            className="text-link"
+            data-transition-label="ARTICLES"
+            onClick={handleSectionNavigation}
+          >
             CONTINUE READING <span aria-hidden="true">↗</span>
           </a>
         </div>
       </section>
 
-      <footer className="site-footer">
-        <a className="brand footer-brand" href="#top">
+      <footer className="site-footer" data-reveal="up">
+        <a
+          className="brand footer-brand"
+          href="#top"
+          data-transition-label="TOP"
+          onClick={handleSectionNavigation}
+        >
           <span className="brand-mark" aria-hidden="true"><span /></span>
-          <span className="brand-copy"><strong>MOZELLE</strong><small>{"// DIMENSION"}</small></span>
+          <span className="brand-copy"><strong>{siteSettings.siteTitle}</strong><small>{"// DIMENSION"}</small></span>
         </a>
-        <p>在旅途与源石之间，持续记录。</p>
+        <p>{siteSettings.tagline}</p>
         <div>
           <span>© 2026 MOZELLE</span>
+          <a href="/admin" aria-label="进入博客管理后台">管理后台 / CONTROL ↗</a>
           <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
             BACK TO TOP ↑
           </button>
@@ -887,7 +2110,7 @@ export default function Home() {
         }}
       >
         {selectedArticle && (
-          <article>
+          <article style={articleDialogStyle}>
             <button className="dialog-close" type="button" onClick={closeArticle} aria-label="关闭文章">
               <span />
               <span />
@@ -900,9 +2123,16 @@ export default function Home() {
             <h2 id="article-dialog-title">{selectedArticle.title}</h2>
             <p className="dialog-lead">{selectedArticle.summary}</p>
             <div className="dialog-divider"><span /></div>
-            <div className="dialog-content">
-              {selectedArticle.content.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-            </div>
+            {selectedArticle.contentHtml ? (
+              <div
+                className="dialog-content article-rich-content"
+                dangerouslySetInnerHTML={{ __html: selectedArticle.contentHtml }}
+              />
+            ) : (
+              <div className="dialog-content">
+                {selectedArticle.content.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+              </div>
+            )}
             <div className="dialog-tags">
               {selectedArticle.tags.map((tag) => <span key={tag}>#{tag}</span>)}
             </div>

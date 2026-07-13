@@ -10,16 +10,25 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "api:start": "node server/index.mjs",
+    "api:check": "node --check server/index.mjs",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.1",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/static": "^10.1.0",
     "drizzle-orm": "0.45.2",
+    "fastify": "^5.10.0",
+    "marked": "^16.4.2",
     "next": "16.2.6",
+    "pg": "^8.22.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "sanitize-html": "^2.17.6"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
@@ -39,6 +48,9 @@
     "vite": "8.0.13",
     "wrangler": "4.92.0"
   },
+  "overrides": {
+    "postcss": "8.5.10"
+  },
   "type": "module",
-  "displayName": "Mozelle \u7684\u4e2a\u4eba\u535a\u5ba2"
+  "displayName": "Mozelle 的个人博客"
 }
