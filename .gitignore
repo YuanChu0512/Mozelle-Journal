@@ -41,6 +41,5 @@ next-env.d.ts
 /outputs/
 /work/
 
-
-# ChatGPT Sites deployment metadata
-.openai/hosting.json
+# Generated Vinext font cache
+.vinext/
