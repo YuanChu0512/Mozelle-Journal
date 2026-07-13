@@ -40,3 +40,7 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+
+
+# ChatGPT Sites deployment metadata
+.openai/hosting.json
