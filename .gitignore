@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+/.vinext/
+*.tsbuildinfo
 
 # misc
 .DS_Store

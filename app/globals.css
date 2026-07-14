@@ -123,6 +123,7 @@ html[data-theme="night"] ::selection {
   --accent-2: #c69a4a;
   --accent-2-rgb: 198, 154, 74;
   --button-ink: #fff;
+  --filter-active: #6652c7;
   --shadow: rgba(54, 39, 84, 0.14);
   --header: rgba(245, 242, 248, 0.76);
   position: relative;
@@ -153,6 +154,7 @@ html[data-theme="night"] ::selection {
   --accent-2: #c3ff62;
   --accent-2-rgb: 195, 255, 98;
   --button-ink: #041008;
+  --filter-active: var(--accent);
   --shadow: rgba(0, 0, 0, 0.42);
   --header: rgba(5, 10, 8, 0.75);
   background:
@@ -2044,9 +2046,9 @@ html[data-theme="night"] ::selection {
 }
 
 .filter-bar button.is-active {
-  border-color: var(--accent);
+  border-color: var(--filter-active);
   color: var(--button-ink);
-  background: var(--accent);
+  background: var(--filter-active);
 }
 
 .article-grid {

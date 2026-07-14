@@ -13,11 +13,34 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mozelle // Dimension — 电子、超频与二次元",
+  metadataBase: new URL("https://www.mozelle.top"),
+  title: {
+    default: "Mozelle Journal｜电子、超频与二次元",
+    template: "%s｜Mozelle Journal",
+  },
   description:
     "电子专业学生的个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。",
-  other: {
-    "codex-preview": "development",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "zh_CN",
+    url: "/",
+    siteName: "Mozelle Journal",
+    title: "Mozelle Journal｜电子、超频与二次元",
+    description:
+      "电子专业学生的个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。",
+  },
+  twitter: {
+    card: "summary",
+    title: "Mozelle Journal｜电子、超频与二次元",
+    description:
+      "电子专业学生的个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。",
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
   icons: {
     icon: "/favicon.svg",

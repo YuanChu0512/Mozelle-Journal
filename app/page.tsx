@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { flushSync } from "react-dom";
 import {
   useEffect,
@@ -184,6 +183,7 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<Theme>("night");
+  const [nightVisualReady, setNightVisualReady] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [articleOrigin, setArticleOrigin] = useState<ArticleOrigin>("card");
   const [transitionArticleId, setTransitionArticleId] = useState<string | null>(null);
@@ -395,6 +395,45 @@ export default function Home() {
     updateMotionMode();
     motionQuery.addEventListener("change", updateMotionMode);
     return () => motionQuery.removeEventListener("change", updateMotionMode);
+  }, []);
+
+  useEffect(() => {
+    if (document.documentElement.dataset.motion !== "full") return;
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number },
+      ) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    let idleHandle = 0;
+    let timer = 0;
+
+    const scheduleWarmup = () => {
+      timer = window.setTimeout(() => {
+        if (idleWindow.requestIdleCallback) {
+          idleHandle = idleWindow.requestIdleCallback(
+            () => setNightVisualReady(true),
+            { timeout: 3000 },
+          );
+        } else {
+          setNightVisualReady(true);
+        }
+      }, 1600);
+    };
+
+    if (document.readyState === "complete") {
+      scheduleWarmup();
+    } else {
+      window.addEventListener("load", scheduleWarmup, { once: true });
+    }
+
+    return () => {
+      window.removeEventListener("load", scheduleWarmup);
+      if (timer) window.clearTimeout(timer);
+      if (idleHandle) idleWindow.cancelIdleCallback?.(idleHandle);
+    };
   }, []);
 
   useEffect(() => {
@@ -830,7 +869,7 @@ export default function Home() {
       imageReady = true;
       buildParticles();
     };
-    sourceImage.src = "/rhodes-island-logo.png";
+    sourceImage.src = "/rhodes-island-logo.webp";
 
     resizeCanvas();
     const resizeObserver = new ResizeObserver(resizeCanvas);
@@ -896,6 +935,11 @@ export default function Home() {
     ).matches;
     const lowPower =
       document.documentElement.dataset.motion === "lite" || coarsePointer;
+    const deviceNavigator = navigator as Navigator & { deviceMemory?: number };
+    const highMotionPerformance =
+      !lowPower &&
+      (deviceNavigator.hardwareConcurrency || 4) >= 8 &&
+      (deviceNavigator.deviceMemory || 4) >= 8;
     const nodeCount = prefersReducedMotion ? 20 : lowPower ? 26 : 44;
     const chordCount = prefersReducedMotion ? 6 : lowPower ? 12 : 26;
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
@@ -1048,7 +1092,9 @@ export default function Home() {
       ? Number.POSITIVE_INFINITY
       : lowPower
         ? 1000 / 20
-        : 1000 / 44;
+        : highMotionPerformance
+          ? 1000 / 60
+          : 1000 / 30;
     let width = 0;
     let height = 0;
     let centerX = 0;
@@ -1318,7 +1364,7 @@ export default function Home() {
       if (lastRaf) {
         const rafDuration = now - lastRaf;
         slowFrames = rafDuration > 25 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
-        if (!lowPower && slowFrames > 32) frameInterval = 1000 / 28;
+        if (!lowPower && slowFrames > 24) frameInterval = 1000 / 30;
       }
       lastRaf = now;
       if (now - lastFrame >= frameInterval) {
@@ -1486,6 +1532,7 @@ export default function Home() {
     if (transitioning) return;
 
     const nextTheme: Theme = theme === "day" ? "night" : "day";
+    if (nextTheme === "night") setNightVisualReady(true);
     const rect = event.currentTarget.getBoundingClientRect();
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
@@ -1660,7 +1707,6 @@ export default function Home() {
         <a
           className="brand"
           href="#top"
-          aria-label="返回首页"
           data-transition-label="TOP"
           onClick={handleSectionNavigation}
         >
@@ -1705,8 +1751,14 @@ export default function Home() {
           className="theme-toggle"
           type="button"
           onClick={toggleTheme}
+          onPointerEnter={() => setNightVisualReady(true)}
+          onFocus={() => setNightVisualReady(true)}
           disabled={transitioning}
-          aria-label={theme === "day" ? "切换到 Mon3tr 黑夜主题" : "切换到伊蕾娜白昼主题"}
+          aria-label={
+            theme === "day"
+              ? "DAY NIGHT 主题切换：切换到 Mon3tr 黑夜主题"
+              : "DAY NIGHT 主题切换：切换到伊蕾娜白昼主题"
+          }
           aria-pressed={theme === "night"}
         >
           <span className="toggle-track" aria-hidden="true">
@@ -1858,26 +1910,50 @@ export default function Home() {
             aria-hidden="true"
           />
           <canvas ref={trailCanvas} className="sigil-interaction" />
-          <Image
-            className="hero-character character-elaina"
-            src="/elaina-user.webp"
-            alt=""
-            width={1600}
-            height={1438}
-            priority
-            decoding="async"
-            unoptimized
-          />
-          <Image
-            className="hero-character character-mon3tr"
-            src="/mon3tr-hero.webp"
-            alt=""
-            width={1024}
-            height={1536}
-            priority
-            decoding="async"
-            unoptimized
-          />
+          <picture>
+            <source
+              type="image/avif"
+              srcSet="/elaina-user-640.avif 640w, /elaina-user-960.avif 960w, /elaina-user-1280.avif 1280w"
+              sizes="(max-width: 560px) 158vw, (max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
+            />
+            <source
+              type="image/webp"
+              srcSet="/elaina-user-640.webp 640w, /elaina-user-960.webp 960w, /elaina-user-1280.webp 1280w"
+              sizes="(max-width: 560px) 158vw, (max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
+            />
+            <img
+              className="hero-character character-elaina"
+              src="/elaina-user-960.webp"
+              alt=""
+              width={1600}
+              height={1438}
+              fetchPriority="high"
+              decoding="async"
+            />
+          </picture>
+          {nightVisualReady && (
+            <picture>
+              <source
+                type="image/avif"
+                srcSet="/mon3tr-hero-480.avif 480w, /mon3tr-hero-720.avif 720w, /mon3tr-hero-960.avif 960w"
+                sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
+              />
+              <source
+                type="image/webp"
+                srcSet="/mon3tr-hero-480.webp 480w, /mon3tr-hero-720.webp 720w, /mon3tr-hero.webp 1024w"
+                sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
+              />
+              <img
+                className="hero-character character-mon3tr"
+                src="/mon3tr-hero-720.webp"
+                alt=""
+                width={1024}
+                height={1536}
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+          )}
         </div>
 
         <button
@@ -1885,7 +1961,6 @@ export default function Home() {
           type="button"
           style={articleSourceStyle(latestArticle.id, "latest")}
           onClick={() => openArticle(latestArticle, "latest")}
-          aria-label={`阅读最新文章：${latestArticle.title}`}
         >
           <span className="latest-meta">
             <span>✥ 最新文章</span>
@@ -1897,7 +1972,7 @@ export default function Home() {
         <a
           className="scroll-cue"
           href="#articles"
-          aria-label="向下浏览文章"
+          aria-label="SCROLL，向下浏览文章"
           data-transition-label="ARTICLES"
           onClick={handleSectionNavigation}
         >
@@ -2092,7 +2167,7 @@ export default function Home() {
         <p>{siteSettings.tagline}</p>
         <div>
           <span>© 2026 MOZELLE</span>
-          <a href="/admin" aria-label="进入博客管理后台">管理后台 / CONTROL ↗</a>
+          <a href="/admin">管理后台 / CONTROL ↗</a>
           <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
             BACK TO TOP ↑
           </button>

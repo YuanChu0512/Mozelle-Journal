@@ -7,7 +7,12 @@ ENV npm_config_audit=false \
 COPY package.json package-lock.json ./
 RUN npm ci --include=dev
 COPY . .
-RUN NODE_ENV=production npm run build
+# The VPS build does not use Sites D1/R2 bindings, but the shared Vite config
+# imports the Sites manifest at build time. Supply a non-secret empty manifest
+# only when the package does not include one.
+RUN mkdir -p .openai \
+    && if [ ! -f .openai/hosting.json ]; then printf '{}\n' > .openai/hosting.json; fi \
+    && NODE_ENV=production npm run build
 
 FROM node:22-bookworm-slim AS web
 WORKDIR /app
