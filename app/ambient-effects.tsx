@@ -2,100 +2,123 @@
 
 import { useEffect, useRef } from "react";
 
-const eventTargetSelector = [
-  "a[data-transition-label]",
-  "button.theme-toggle",
-  ".button-primary",
-  ".article-footer a",
-  ".article-header-actions a",
-  ".article-header-actions button",
+const interactiveTargetSelector = [
+  "a",
+  "button",
+  "[role='button']",
+  "input",
+  "textarea",
+  "select",
+  "summary",
 ].join(",");
 
 export default function AmbientEffects() {
-  const fieldRef = useRef<HTMLSpanElement>(null);
+  const cursorRef = useRef<HTMLSpanElement>(null);
+  const trailRef = useRef<HTMLSpanElement>(null);
   const burstRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    const field = fieldRef.current;
+    const cursor = cursorRef.current;
+    const trail = trailRef.current;
     const burst = burstRef.current;
-    if (!field || !burst) return;
+    if (!cursor || !trail || !burst) return;
 
     const pointerQuery = window.matchMedia("(min-width: 941px) and (pointer: fine)");
     const motionQuery = window.matchMedia("(prefers-reduced-motion: no-preference)");
-    const target = { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 };
-    const current = { ...target };
+    const target = { x: -100, y: -100 };
     let frame = 0;
-    let idleTimer = 0;
     let burstTimer = 0;
-    let initialized = false;
+    let pressTimer = 0;
+    let lastTrailAt = 0;
+    let lastTrailX = -100;
+    let lastTrailY = -100;
+    let trailIndex = 0;
 
     const canAnimate = () =>
       pointerQuery.matches &&
       motionQuery.matches &&
       document.documentElement.dataset.motion !== "lite";
 
-    const stopField = () => {
-      if (frame) window.cancelAnimationFrame(frame);
+    const paintCursor = () => {
       frame = 0;
-      initialized = false;
-      field.dataset.active = "false";
-      field.dataset.idle = "true";
+      cursor.style.transform = `translate3d(${target.x}px, ${target.y}px, 0)`;
     };
 
-    const paintField = () => {
-      if (!canAnimate()) {
-        stopField();
-        return;
-      }
+    const requestCursorPaint = () => {
+      if (!frame) frame = window.requestAnimationFrame(paintCursor);
+    };
 
-      const deltaX = target.x - current.x;
-      const deltaY = target.y - current.y;
-      current.x += deltaX * 0.16;
-      current.y += deltaY * 0.16;
-      field.style.transform = `translate3d(${current.x}px, ${current.y}px, 0)`;
+    const disableCursor = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      cursor.dataset.visible = "false";
+      cursor.dataset.interactive = "false";
+      cursor.dataset.pressed = "false";
+      trail.replaceChildren();
+      delete document.documentElement.dataset.customCursor;
+    };
 
-      if (Math.abs(deltaX) > 0.18 || Math.abs(deltaY) > 0.18) {
-        frame = window.requestAnimationFrame(paintField);
-      } else {
-        current.x = target.x;
-        current.y = target.y;
-        field.style.transform = `translate3d(${current.x}px, ${current.y}px, 0)`;
-        frame = 0;
-      }
+    const syncCursorCapability = () => {
+      if (!canAnimate()) return disableCursor();
+      document.documentElement.dataset.customCursor = "true";
     };
 
     const handlePointerMove = (event: PointerEvent) => {
       if (!canAnimate()) return;
+      if (document.documentElement.dataset.customCursor !== "true") {
+        syncCursorCapability();
+      }
       target.x = event.clientX;
       target.y = event.clientY;
+      const hovered = event.target instanceof Element ? event.target : null;
+      cursor.dataset.visible = "true";
+      cursor.dataset.interactive = String(
+        Boolean(hovered?.closest(interactiveTargetSelector)),
+      );
+      requestCursorPaint();
 
-      if (!initialized) {
-        current.x = target.x;
-        current.y = target.y;
-        initialized = true;
+      const now = performance.now();
+      const distance = Math.hypot(event.clientX - lastTrailX, event.clientY - lastTrailY);
+      if (now - lastTrailAt >= 34 && distance >= 7) {
+        const palette =
+          document.documentElement.dataset.theme === "night" ? "night" : "day";
+        const mote = document.createElement("i");
+        const direction = trailIndex % 2 === 0 ? 1 : -1;
+        mote.className = "cursor-trail-mote";
+        mote.dataset.palette = palette;
+        mote.style.setProperty("--trail-x", `${event.clientX}px`);
+        mote.style.setProperty("--trail-y", `${event.clientY}px`);
+        mote.style.setProperty("--trail-dx", `${direction * (3 + (trailIndex % 3))}px`);
+        mote.style.setProperty(
+          "--trail-dy",
+          `${palette === "day" ? -(7 + (trailIndex % 4)) : 2 + (trailIndex % 3)}px`,
+        );
+        mote.addEventListener("animationend", () => mote.remove(), { once: true });
+        trail.append(mote);
+        while (trail.childElementCount > 12) trail.firstElementChild?.remove();
+        lastTrailAt = now;
+        lastTrailX = event.clientX;
+        lastTrailY = event.clientY;
+        trailIndex += 1;
       }
-
-      field.dataset.active = "true";
-      field.dataset.idle = "false";
-      if (!frame) frame = window.requestAnimationFrame(paintField);
-
-      window.clearTimeout(idleTimer);
-      idleTimer = window.setTimeout(() => {
-        field.dataset.idle = "true";
-      }, 620);
     };
 
     const handlePointerOut = (event: PointerEvent) => {
-      if (!event.relatedTarget) stopField();
+      if (!event.relatedTarget) cursor.dataset.visible = "false";
     };
 
     const triggerBurst = (event: PointerEvent) => {
       if (!canAnimate()) return;
-      const targetElement = event.target instanceof Element ? event.target : null;
-      if (!targetElement?.closest(eventTargetSelector)) return;
+      cursor.dataset.pressed = "true";
+      window.clearTimeout(pressTimer);
+      pressTimer = window.setTimeout(() => {
+        cursor.dataset.pressed = "false";
+      }, 160);
 
       burst.style.setProperty("--burst-x", `${event.clientX}px`);
       burst.style.setProperty("--burst-y", `${event.clientY}px`);
+      burst.dataset.palette =
+        document.documentElement.dataset.theme === "night" ? "night" : "day";
       burst.dataset.active = "false";
       void burst.offsetWidth;
       burst.dataset.active = "true";
@@ -108,26 +131,35 @@ export default function AmbientEffects() {
 
     const handlePreferenceChange = () => {
       if (!canAnimate()) {
-        stopField();
+        disableCursor();
         burst.dataset.active = "false";
+      } else {
+        syncCursorCapability();
       }
     };
 
+    syncCursorCapability();
+    const motionModeObserver = new MutationObserver(handlePreferenceChange);
+    motionModeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-motion"],
+    });
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener("pointerout", handlePointerOut, { passive: true });
     window.addEventListener("pointerdown", triggerBurst, { passive: true });
-    window.addEventListener("blur", stopField);
+    window.addEventListener("blur", disableCursor);
     pointerQuery.addEventListener("change", handlePreferenceChange);
     motionQuery.addEventListener("change", handlePreferenceChange);
 
     return () => {
-      stopField();
-      window.clearTimeout(idleTimer);
+      disableCursor();
+      motionModeObserver.disconnect();
       window.clearTimeout(burstTimer);
+      window.clearTimeout(pressTimer);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerout", handlePointerOut);
       window.removeEventListener("pointerdown", triggerBurst);
-      window.removeEventListener("blur", stopField);
+      window.removeEventListener("blur", disableCursor);
       pointerQuery.removeEventListener("change", handlePreferenceChange);
       motionQuery.removeEventListener("change", handlePreferenceChange);
     };
@@ -137,17 +169,31 @@ export default function AmbientEffects() {
     <>
       <div className="global-ambient-effects" aria-hidden="true">
         <span
-          ref={fieldRef}
-          className="spatial-refraction-anchor"
-          data-active="false"
-          data-idle="true"
+          ref={cursorRef}
+          className="theme-cursor-anchor"
+          data-visible="false"
+          data-interactive="false"
+          data-pressed="false"
         >
-          <i className="spatial-refraction-field" />
+          <i className="cursor-day-star" />
+          <i className="cursor-night-reticle">
+            <span className="reticle-corner reticle-nw" />
+            <span className="reticle-corner reticle-ne" />
+            <span className="reticle-corner reticle-se" />
+            <span className="reticle-corner reticle-sw" />
+            <span className="reticle-core" />
+          </i>
         </span>
+        <span ref={trailRef} className="cursor-trail-layer" />
       </div>
 
       <div className="dimension-event-layer" aria-hidden="true">
-        <span ref={burstRef} className="dimension-event-burst" data-active="false">
+        <span
+          ref={burstRef}
+          className="dimension-event-burst"
+          data-active="false"
+          data-palette="day"
+        >
           <i className="event-burst-glow" />
           <i className="event-burst-wave" />
           <i className="event-burst-slice slice-one" />

@@ -89,6 +89,30 @@ const collections = [
   },
 ];
 
+function DimensionScrollScene({
+  code,
+  variant,
+}: {
+  code: string;
+  variant: "articles" | "lab" | "collection" | "about";
+}) {
+  return (
+    <div
+      className={`dimension-scroll-scene dimension-scene-${variant}`}
+      aria-hidden="true"
+    >
+      <span className="dimension-plane dimension-plane-far" />
+      <span className="dimension-plane dimension-plane-near" />
+      <span className="dimension-axis">
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="dimension-scene-code">{code}</span>
+    </div>
+  );
+}
+
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("day");
   const [filter, setFilter] = useState<Filter>("全部");
@@ -98,6 +122,7 @@ export default function Home() {
   const [transitioning, setTransitioning] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<Theme>("night");
   const [nightVisualReady, setNightVisualReady] = useState(false);
+  const [nightMotionPhase, setNightMotionPhase] = useState(0);
   const [activeSection, setActiveSection] = useState("top");
   const [sectionJump, setSectionJump] = useState<{
     key: number;
@@ -105,10 +130,13 @@ export default function Home() {
   } | null>(null);
   const heroSection = useRef<HTMLElement>(null);
   const heroVisual = useRef<HTMLDivElement>(null);
-  const trailCanvas = useRef<HTMLCanvasElement>(null);
   const rhodesParticleCanvas = useRef<HTMLCanvasElement>(null);
   const wireSphereCanvas = useRef<HTMLCanvasElement>(null);
   const sectionJumpTimer = useRef<number | null>(null);
+  const particleMotionReady =
+    theme === "night" && !transitioning && nightMotionPhase >= 1;
+  const sphereMotionReady =
+    theme === "night" && !transitioning && nightMotionPhase >= 2;
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -117,6 +145,17 @@ export default function Home() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, []);
+
+  useEffect(() => {
+    if (theme !== "night" || transitioning) return;
+
+    const firstPhase = window.setTimeout(() => setNightMotionPhase(1), 90);
+    const secondPhase = window.setTimeout(() => setNightMotionPhase(2), 340);
+    return () => {
+      window.clearTimeout(firstPhase);
+      window.clearTimeout(secondPhase);
+    };
+  }, [theme, transitioning]);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("mozelle-theme");
@@ -363,10 +402,8 @@ export default function Home() {
 
   useEffect(() => {
     const visual = heroVisual.current;
-    const canvas = trailCanvas.current;
     if (
       !visual ||
-      !canvas ||
       document.documentElement.dataset.motion === "lite" ||
       window.matchMedia("(pointer: coarse), (prefers-reduced-motion: reduce)")
         .matches
@@ -374,125 +411,11 @@ export default function Home() {
       return;
     }
 
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    type TrailPoint = { x: number; y: number; createdAt: number };
-    let points: TrailPoint[] = [];
-    let trailFrame = 0;
     let parallaxFrame = 0;
-    let lastFrame = 0;
-    let width = 0;
-    let height = 0;
     let visualRect = visual.getBoundingClientRect();
     let pointerEngaged = false;
     const pointerTarget = { x: 0, y: 0 };
     const pointerCurrent = { x: 0, y: 0 };
-    const lifetime = 520;
-    const trailEnabled = theme === "day";
-
-    const resizeCanvas = () => {
-      const rect = visual.getBoundingClientRect();
-      visualRect = rect;
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.25);
-      width = rect.width;
-      height = rect.height;
-      canvas.width = Math.max(1, Math.round(width * pixelRatio));
-      canvas.height = Math.max(1, Math.round(height * pixelRatio));
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-      context.clearRect(0, 0, width, height);
-    };
-
-    const clipToSigil = () => {
-      context.beginPath();
-      if (theme === "day") {
-        context.arc(
-          width * 0.55,
-          height * 0.44,
-          Math.min(width * 0.46, height * 0.43),
-          0,
-          Math.PI * 2,
-        );
-      } else {
-        const vertices = [
-          [0.55, 0.04],
-          [0.72, 0.08],
-          [0.88, 0.2],
-          [0.97, 0.39],
-          [0.94, 0.61],
-          [0.8, 0.81],
-          [0.62, 0.94],
-          [0.4, 0.92],
-          [0.21, 0.8],
-          [0.08, 0.6],
-          [0.09, 0.37],
-          [0.23, 0.17],
-          [0.4, 0.08],
-        ];
-        vertices.forEach(([x, y], index) => {
-          if (index === 0) context.moveTo(x * width, y * height);
-          else context.lineTo(x * width, y * height);
-        });
-        context.closePath();
-      }
-      context.clip();
-    };
-
-    const drawTrail = (now: number) => {
-      if (now - lastFrame < 16) {
-        trailFrame = window.requestAnimationFrame(drawTrail);
-        return;
-      }
-      lastFrame = now;
-      points = points.filter((point) => now - point.createdAt < lifetime);
-      context.clearRect(0, 0, width, height);
-
-      if (points.length > 1) {
-        context.save();
-        clipToSigil();
-        context.globalCompositeOperation = "lighter";
-        context.lineCap = "round";
-        context.lineJoin = "round";
-        context.shadowColor =
-          theme === "day" ? "rgba(159, 124, 255, .48)" : "rgba(111, 255, 151, .58)";
-        context.shadowBlur = 5;
-
-        for (let index = 1; index < points.length; index += 1) {
-          const previous = points[index - 1];
-          const current = points[index];
-          const age = (now - current.createdAt) / lifetime;
-          const alpha = Math.max(0, (1 - age) * (index / points.length));
-          context.beginPath();
-          context.moveTo(previous.x, previous.y);
-          context.lineTo(current.x, current.y);
-          context.lineWidth = 0.7 + (index / points.length) * 1.8;
-          context.strokeStyle =
-            theme === "day"
-              ? `rgba(178, 139, 255, ${alpha * 0.8})`
-              : `rgba(120, 255, 157, ${alpha * 0.9})`;
-          context.stroke();
-        }
-
-        const head = points[points.length - 1];
-        const headAlpha = Math.max(0, 1 - (now - head.createdAt) / lifetime);
-        context.beginPath();
-        context.arc(head.x, head.y, 2.6, 0, Math.PI * 2);
-        context.fillStyle =
-          theme === "day"
-            ? `rgba(255, 220, 148, ${headAlpha})`
-            : `rgba(199, 255, 103, ${headAlpha})`;
-        context.fill();
-        context.restore();
-      }
-
-      trailFrame = points.length ? window.requestAnimationFrame(drawTrail) : 0;
-    };
-
-    const requestDraw = () => {
-      if (trailEnabled && !trailFrame) {
-        trailFrame = window.requestAnimationFrame(drawTrail);
-      }
-    };
 
     const renderParallax = () => {
       parallaxFrame = 0;
@@ -556,14 +479,6 @@ export default function Home() {
       visual.classList.add("is-pointer-engaged");
       requestParallax();
 
-      if (trailEnabled) {
-        const previous = points[points.length - 1];
-        if (!previous || Math.hypot(previous.x - x, previous.y - y) > 3) {
-          points.push({ x, y, createdAt: performance.now() });
-          if (points.length > 18) points.shift();
-        }
-        requestDraw();
-      }
     };
 
     const resetPointer = () => {
@@ -571,15 +486,13 @@ export default function Home() {
       pointerTarget.x = 0;
       pointerTarget.y = 0;
       requestParallax();
-      requestDraw();
     };
 
-    resizeCanvas();
-    const resizeObserver = new ResizeObserver(resizeCanvas);
-    resizeObserver.observe(visual);
     const updateVisualRect = () => {
       visualRect = visual.getBoundingClientRect();
     };
+    const resizeObserver = new ResizeObserver(updateVisualRect);
+    resizeObserver.observe(visual);
     window.addEventListener("scroll", updateVisualRect, { passive: true });
     visual.addEventListener("pointermove", handlePointerMove, { passive: true });
     visual.addEventListener("pointerleave", resetPointer);
@@ -589,10 +502,8 @@ export default function Home() {
       window.removeEventListener("scroll", updateVisualRect);
       visual.removeEventListener("pointermove", handlePointerMove);
       visual.removeEventListener("pointerleave", resetPointer);
-      if (trailFrame) window.cancelAnimationFrame(trailFrame);
       if (parallaxFrame) window.cancelAnimationFrame(parallaxFrame);
       visual.classList.remove("is-pointer-engaged");
-      context.clearRect(0, 0, width, height);
     };
   }, [theme]);
 
@@ -601,10 +512,13 @@ export default function Home() {
     const canvas = rhodesParticleCanvas.current;
     if (!visual || !canvas) return;
 
-    const context = canvas.getContext("2d", { alpha: true });
+    const context = canvas.getContext("2d", {
+      alpha: true,
+      desynchronized: true,
+    });
     if (!context) return;
 
-    if (theme !== "night" || transitioning) {
+    if (!particleMotionReady) {
       context.clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
@@ -650,6 +564,8 @@ export default function Home() {
     let destroyed = false;
     let assembledOnce = false;
     let assemblyStartedAt = 0;
+    let sceneStartedAt = performance.now();
+    let lastActivityAt = sceneStartedAt;
     let inView = visualRect.bottom > 0 && visualRect.top < window.innerHeight;
 
     const drawParticles = (
@@ -667,7 +583,7 @@ export default function Home() {
       const spring = lowPower ? 0.024 : assembling ? 0.042 : 0.029;
       const friction = lowPower ? 0.8 : 0.83;
       const scaledFriction = Math.pow(friction, frameScale);
-      const drift = lowPower ? 0.12 : 0.32;
+      const drift = assembling ? (lowPower ? 0.08 : 0.24) : pointer.active ? 0.14 : 0;
 
       context.globalCompositeOperation = "source-over";
       context.beginPath();
@@ -753,6 +669,8 @@ export default function Home() {
 
     const animate = (now: number) => {
       if (destroyed) return;
+      frame = 0;
+      if (pointer.active && now - lastActivityAt > 140) pointer.active = false;
       updateRefreshRate(now);
       if (!nextRenderAt) nextRenderAt = now;
       if (now + 0.25 >= nextRenderAt) {
@@ -766,13 +684,24 @@ export default function Home() {
           nextRenderAt = now + targetFrameDuration;
         }
       }
+
+      const canIdle =
+        now - sceneStartedAt > 1500 &&
+        now - lastActivityAt > 880 &&
+        (!assemblyStartedAt || now - assemblyStartedAt > 1280);
+      if (canIdle) {
+        canvas.dataset.animationState = "idle";
+        return;
+      }
+
+      canvas.dataset.animationState = "active";
       frame = window.requestAnimationFrame(animate);
     };
 
     const buildParticles = () => {
       if (!imageReady || !width || !height) return;
 
-      const sampleSize = lowPower ? 200 : 280;
+      const sampleSize = lowPower ? 190 : 240;
       const offscreen = document.createElement("canvas");
       offscreen.width = sampleSize;
       offscreen.height = sampleSize;
@@ -789,7 +718,7 @@ export default function Home() {
         sampleSize,
       ).data;
 
-      const maxParticles = lowPower ? 520 : 1650;
+      const maxParticles = lowPower ? 460 : 1200;
       let step = lowPower ? 4 : 2;
       let samples: Array<[number, number, number]> = [];
       const collectSamples = () => {
@@ -853,6 +782,9 @@ export default function Home() {
       });
 
       assembledOnce = true;
+      sceneStartedAt = performance.now();
+      lastActivityAt = sceneStartedAt;
+      canvas.dataset.particleCount = String(particles.length);
       drawParticles(performance.now(), false);
     };
 
@@ -862,7 +794,7 @@ export default function Home() {
       height = visualRect.height;
       const pixelRatio = Math.min(
         window.devicePixelRatio || 1,
-        lowPower ? 1 : 1.25,
+        lowPower ? 1 : 1.1,
       );
       canvas.width = Math.max(1, Math.round(width * pixelRatio));
       canvas.height = Math.max(1, Math.round(height * pixelRatio));
@@ -875,9 +807,12 @@ export default function Home() {
       pointer.x = event.clientX - visualRect.left;
       pointer.y = event.clientY - visualRect.top;
       pointer.active = true;
+      lastActivityAt = performance.now();
+      updateAnimationState();
     };
     const handlePointerLeave = () => {
       pointer.active = false;
+      lastActivityAt = performance.now();
     };
     const updateAnimationState = () => {
       if (document.hidden || !inView || prefersReducedMotion) {
@@ -887,6 +822,7 @@ export default function Home() {
         lastAnimationFrame = 0;
         lastRenderFrame = 0;
         nextRenderAt = 0;
+        canvas.dataset.animationState = "active";
         frame = window.requestAnimationFrame(animate);
       }
     };
@@ -925,19 +861,24 @@ export default function Home() {
       context.clearRect(0, 0, width, height);
       delete canvas.dataset.refreshRate;
       delete canvas.dataset.targetFps;
+      delete canvas.dataset.animationState;
+      delete canvas.dataset.particleCount;
       sourceImage.onload = null;
     };
-  }, [theme, transitioning]);
+  }, [particleMotionReady]);
 
   useEffect(() => {
     const visual = heroVisual.current;
     const canvas = wireSphereCanvas.current;
     if (!visual || !canvas) return;
 
-    const context = canvas.getContext("2d", { alpha: true });
+    const context = canvas.getContext("2d", {
+      alpha: true,
+      desynchronized: true,
+    });
     if (!context) return;
 
-    if (theme !== "night") {
+    if (!sphereMotionReady) {
       context.clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
@@ -1123,8 +1064,8 @@ export default function Home() {
       : lowPower
         ? 1000 / 20
         : highMotionPerformance
-          ? 1000 / 60
-          : 1000 / 30;
+          ? 1000 / 36
+          : 1000 / 28;
     let width = 0;
     let height = 0;
     let centerX = 0;
@@ -1417,7 +1358,7 @@ export default function Home() {
       );
       const pixelRatio = Math.min(
         window.devicePixelRatio || 1,
-        lowPower ? 1 : 1.15,
+        1,
       );
       canvas.width = Math.max(1, Math.round(width * pixelRatio));
       canvas.height = Math.max(1, Math.round(height * pixelRatio));
@@ -1466,7 +1407,7 @@ export default function Home() {
       if (frame) window.cancelAnimationFrame(frame);
       context.clearRect(0, 0, width, height);
     };
-  }, [theme]);
+  }, [sphereMotionReady]);
 
   const visibleArticles = useMemo(
     () =>
@@ -1597,6 +1538,7 @@ export default function Home() {
     document.documentElement.style.setProperty("--switch-y", `${y}px`);
     document.documentElement.dataset.switching = nextTheme;
     setTransitionTarget(nextTheme);
+    setNightMotionPhase(0);
     setTransitioning(true);
 
     const finishTransition = () => {
@@ -1604,8 +1546,8 @@ export default function Home() {
       delete document.documentElement.dataset.switching;
     };
 
-    const switchDelay = reducedMotion ? 0 : liteMotion ? 100 : 160;
-    const totalDuration = reducedMotion ? 160 : liteMotion ? 390 : 900;
+    const switchDelay = reducedMotion ? 0 : liteMotion ? 90 : 140;
+    const totalDuration = reducedMotion ? 140 : liteMotion ? 360 : 820;
     window.setTimeout(() => applyTheme(nextTheme), switchDelay);
     window.setTimeout(finishTransition, totalDuration);
   };
@@ -1919,7 +1861,6 @@ export default function Home() {
             className="wire-sphere-canvas"
             aria-hidden="true"
           />
-          <canvas ref={trailCanvas} className="sigil-interaction" />
           <div className="hero-character-plane character-plane-day">
             <picture>
               <source
@@ -2012,6 +1953,7 @@ export default function Home() {
         data-section="articles"
         data-section-state={activeSection === "articles" ? "active" : undefined}
       >
+        <DimensionScrollScene code="D-01 / ARCHIVE" variant="articles" />
         <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">01 / ARTICLES</span>
@@ -2080,6 +2022,7 @@ export default function Home() {
         data-section="lab"
         data-section-state={activeSection === "lab" ? "active" : undefined}
       >
+        <DimensionScrollScene code="D-02 / SIGNAL" variant="lab" />
         <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">02 / LAB NOTES</span>
@@ -2119,6 +2062,7 @@ export default function Home() {
         data-section="collection"
         data-section-state={activeSection === "collection" ? "active" : undefined}
       >
+        <DimensionScrollScene code="D-03 / PARALLAX" variant="collection" />
         <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">03 / DIMENSION</span>
@@ -2155,6 +2099,7 @@ export default function Home() {
         data-section="about"
         data-section-state={activeSection === "about" ? "active" : undefined}
       >
+        <DimensionScrollScene code="D-04 / ORIGIN" variant="about" />
         <div className="about-code" aria-hidden="true" data-reveal="left">
           <span>ABOUT / MOZELLE</span>
           <strong>EE</strong>
