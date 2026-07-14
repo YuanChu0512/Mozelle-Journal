@@ -1990,23 +1990,23 @@ export default function Home() {
               <source
                 media="(max-width: 560px)"
                 type="image/avif"
-                srcSet="/elaina-user-800.avif 800w, /elaina-user-960.avif 960w"
+                srcSet="/elaina-user-800.avif?v=hq1"
                 sizes="158vw"
               />
               <source
                 type="image/avif"
-                srcSet="/elaina-user-640.avif 640w, /elaina-user-960.avif 960w, /elaina-user-1280.avif 1280w, /elaina-user-1600.avif 1600w"
+                srcSet="/elaina-user-640.avif?v=hq1 640w, /elaina-user-960.avif?v=hq1 960w, /elaina-user-1280.avif?v=hq1 1280w, /elaina-user-1600.avif?v=hq1 1600w"
                 sizes="(max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
               />
               <source
                 media="(max-width: 560px)"
                 type="image/webp"
-                srcSet="/elaina-user-800.webp 800w, /elaina-user-960.webp 960w"
+                srcSet="/elaina-user-800.webp?v=hq1"
                 sizes="158vw"
               />
               <source
                 type="image/webp"
-                srcSet="/elaina-user-640.webp 640w, /elaina-user-960.webp 960w, /elaina-user-1280.webp 1280w, /elaina-user.webp 1600w"
+                srcSet="/elaina-user-640.webp?v=hq1 640w, /elaina-user-960.webp?v=hq1 960w, /elaina-user-1280.webp?v=hq1 1280w, /elaina-user.webp?v=hq1 1600w"
                 sizes="(max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
               />
               <img
@@ -2025,12 +2025,12 @@ export default function Home() {
               <picture>
                 <source
                   type="image/avif"
-                  srcSet="/mon3tr-hero-480.avif 480w, /mon3tr-hero-720.avif 720w, /mon3tr-hero-960.avif 960w, /mon3tr-hero-1024.avif 1024w"
+                  srcSet="/mon3tr-hero-480.avif?v=hq1 480w, /mon3tr-hero-720.avif?v=hq1 720w, /mon3tr-hero-960.avif?v=hq1 960w, /mon3tr-hero-1024.avif?v=hq1 1024w"
                   sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
                 />
                 <source
                   type="image/webp"
-                  srcSet="/mon3tr-hero-480.webp 480w, /mon3tr-hero-720.webp 720w, /mon3tr-hero.webp 1024w"
+                  srcSet="/mon3tr-hero-480.webp?v=hq1 480w, /mon3tr-hero-720.webp?v=hq1 720w, /mon3tr-hero.webp?v=hq1 1024w"
                   sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
                 />
                 <img

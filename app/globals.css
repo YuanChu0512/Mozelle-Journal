@@ -3281,35 +3281,35 @@ html[data-motion="lite"] .journey-rail {
 
 @media (min-width: 941px) and (prefers-reduced-motion: no-preference) {
   .site-header {
-    animation: premium-header-enter 720ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-header-enter 560ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 
   .hero-kicker {
-    animation: premium-copy-enter 680ms 90ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-copy-enter 520ms 40ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 
   .hero h1 {
-    animation: premium-copy-enter 880ms 150ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-copy-enter 700ms 80ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 
   .hero-description {
-    animation: premium-copy-enter 760ms 245ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-copy-enter 600ms 110ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 
   .hero-actions {
-    animation: premium-copy-enter 740ms 320ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-copy-enter 600ms 140ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 
   .interest-tags {
-    animation: premium-copy-enter 720ms 385ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-copy-enter 580ms 170ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 
   .hero-visual {
-    animation: premium-visual-enter 1080ms 70ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-visual-enter 760ms 50ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 
   .latest-card {
-    animation: premium-copy-enter 760ms 460ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+    animation: premium-copy-enter 620ms 210ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
   }
 }
 
@@ -3318,17 +3318,17 @@ html[data-motion="lite"] .journey-rail {
 }
 
 @keyframes premium-header-enter {
-  from { opacity: 0; transform: translate3d(0, -12px, 0); }
+  from { opacity: 0.9; transform: translate3d(0, -8px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 @keyframes premium-copy-enter {
-  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  from { opacity: 0.86; transform: translate3d(0, 12px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 @keyframes premium-visual-enter {
-  from { opacity: 0; transform: translate3d(28px, 8px, 0) scale(0.985); }
+  from { opacity: 0.96; transform: translate3d(18px, 5px, 0) scale(0.992); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 
