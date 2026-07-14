@@ -442,7 +442,6 @@ export default function Home() {
     if (
       !visual ||
       !canvas ||
-      theme !== "day" ||
       document.documentElement.dataset.motion === "lite" ||
       window.matchMedia("(pointer: coarse), (prefers-reduced-motion: reduce)")
         .matches
@@ -455,12 +454,17 @@ export default function Home() {
 
     type TrailPoint = { x: number; y: number; createdAt: number };
     let points: TrailPoint[] = [];
-    let frame = 0;
+    let trailFrame = 0;
+    let parallaxFrame = 0;
     let lastFrame = 0;
     let width = 0;
     let height = 0;
     let visualRect = visual.getBoundingClientRect();
+    let pointerEngaged = false;
+    const pointerTarget = { x: 0, y: 0 };
+    const pointerCurrent = { x: 0, y: 0 };
     const lifetime = 520;
+    const trailEnabled = theme === "day";
 
     const resizeCanvas = () => {
       const rect = visual.getBoundingClientRect();
@@ -511,7 +515,7 @@ export default function Home() {
 
     const drawTrail = (now: number) => {
       if (now - lastFrame < 16) {
-        frame = window.requestAnimationFrame(drawTrail);
+        trailFrame = window.requestAnimationFrame(drawTrail);
         return;
       }
       lastFrame = now;
@@ -556,11 +560,60 @@ export default function Home() {
         context.restore();
       }
 
-      frame = points.length ? window.requestAnimationFrame(drawTrail) : 0;
+      trailFrame = points.length ? window.requestAnimationFrame(drawTrail) : 0;
     };
 
     const requestDraw = () => {
-      if (!frame) frame = window.requestAnimationFrame(drawTrail);
+      if (trailEnabled && !trailFrame) {
+        trailFrame = window.requestAnimationFrame(drawTrail);
+      }
+    };
+
+    const renderParallax = () => {
+      parallaxFrame = 0;
+      const smoothing = pointerEngaged ? 0.115 : 0.085;
+      pointerCurrent.x += (pointerTarget.x - pointerCurrent.x) * smoothing;
+      pointerCurrent.y += (pointerTarget.y - pointerCurrent.y) * smoothing;
+
+      const x = pointerCurrent.x;
+      const y = pointerCurrent.y;
+      if (theme === "day") {
+        visual.style.setProperty("--sigil-shift-x", `${x * 9}px`);
+        visual.style.setProperty("--sigil-shift-y", `${y * 7}px`);
+        visual.style.setProperty("--sigil-shift-x-rev", `${x * -6}px`);
+        visual.style.setProperty("--sigil-shift-y-rev", `${y * -5}px`);
+        visual.style.setProperty("--sigil-rotate", `${x * 2.4}deg`);
+        visual.style.setProperty("--sigil-rotate-rev", `${y * -2.2}deg`);
+      } else {
+        visual.style.setProperty("--mesh-shift-x", `${x * 11}px`);
+        visual.style.setProperty("--mesh-shift-y", `${y * 8}px`);
+        visual.style.setProperty("--mesh-rotate", `${(x - y) * 1.45}deg`);
+        visual.style.setProperty("--mesh-tilt-x", `${y * -4.5}deg`);
+        visual.style.setProperty("--mesh-tilt-y", `${x * 6}deg`);
+      }
+      visual.style.setProperty("--character-shift-x", `${x * 6.5}px`);
+      visual.style.setProperty("--character-shift-y", `${y * 4.5}px`);
+      visual.style.setProperty("--character-shift-x-rev", `${x * -3.5}px`);
+      visual.style.setProperty("--character-shift-y-rev", `${y * -2.8}px`);
+      visual.style.setProperty("--light-shift-x", `${x * 18}px`);
+      visual.style.setProperty("--light-shift-y", `${y * 14}px`);
+
+      const remaining =
+        Math.abs(pointerTarget.x - pointerCurrent.x) +
+        Math.abs(pointerTarget.y - pointerCurrent.y);
+      if (remaining > 0.002) {
+        parallaxFrame = window.requestAnimationFrame(renderParallax);
+      } else if (!pointerEngaged) {
+        pointerCurrent.x = 0;
+        pointerCurrent.y = 0;
+        visual.classList.remove("is-pointer-engaged");
+      }
+    };
+
+    const requestParallax = () => {
+      if (!parallaxFrame) {
+        parallaxFrame = window.requestAnimationFrame(renderParallax);
+      }
     };
 
     const handlePointerMove = (event: globalThis.PointerEvent) => {
@@ -572,41 +625,27 @@ export default function Home() {
 
       visual.style.setProperty("--pointer-x", `${x}px`);
       visual.style.setProperty("--pointer-y", `${y}px`);
-      if (theme === "day") {
-        visual.style.setProperty("--sigil-shift-x", `${normalizedX * 9}px`);
-        visual.style.setProperty("--sigil-shift-y", `${normalizedY * 7}px`);
-        visual.style.setProperty("--sigil-shift-x-rev", `${normalizedX * -6}px`);
-        visual.style.setProperty("--sigil-shift-y-rev", `${normalizedY * -5}px`);
-        visual.style.setProperty("--sigil-rotate", `${normalizedX * 2.4}deg`);
-        visual.style.setProperty("--sigil-rotate-rev", `${normalizedY * -2.2}deg`);
-      } else {
-        visual.style.setProperty("--mesh-shift-x", `${normalizedX * 13}px`);
-        visual.style.setProperty("--mesh-shift-y", `${normalizedY * 10}px`);
-        visual.style.setProperty("--mesh-rotate", `${(normalizedX - normalizedY) * 1.8}deg`);
-        visual.style.setProperty("--mesh-tilt-x", `${normalizedY * -6}deg`);
-        visual.style.setProperty("--mesh-tilt-y", `${normalizedX * 8}deg`);
-      }
+      pointerTarget.x = normalizedX;
+      pointerTarget.y = normalizedY;
+      pointerEngaged = true;
+      visual.classList.add("is-pointer-engaged");
+      requestParallax();
 
-      const previous = points[points.length - 1];
-      if (!previous || Math.hypot(previous.x - x, previous.y - y) > 3) {
-        points.push({ x, y, createdAt: performance.now() });
-        if (points.length > 18) points.shift();
+      if (trailEnabled) {
+        const previous = points[points.length - 1];
+        if (!previous || Math.hypot(previous.x - x, previous.y - y) > 3) {
+          points.push({ x, y, createdAt: performance.now() });
+          if (points.length > 18) points.shift();
+        }
+        requestDraw();
       }
-      requestDraw();
     };
 
     const resetPointer = () => {
-      visual.style.setProperty("--sigil-shift-x", "0px");
-      visual.style.setProperty("--sigil-shift-y", "0px");
-      visual.style.setProperty("--sigil-shift-x-rev", "0px");
-      visual.style.setProperty("--sigil-shift-y-rev", "0px");
-      visual.style.setProperty("--sigil-rotate", "0deg");
-      visual.style.setProperty("--sigil-rotate-rev", "0deg");
-      visual.style.setProperty("--mesh-shift-x", "0px");
-      visual.style.setProperty("--mesh-shift-y", "0px");
-      visual.style.setProperty("--mesh-rotate", "0deg");
-      visual.style.setProperty("--mesh-tilt-x", "0deg");
-      visual.style.setProperty("--mesh-tilt-y", "0deg");
+      pointerEngaged = false;
+      pointerTarget.x = 0;
+      pointerTarget.y = 0;
+      requestParallax();
       requestDraw();
     };
 
@@ -625,7 +664,9 @@ export default function Home() {
       window.removeEventListener("scroll", updateVisualRect);
       visual.removeEventListener("pointermove", handlePointerMove);
       visual.removeEventListener("pointerleave", resetPointer);
-      if (frame) window.cancelAnimationFrame(frame);
+      if (trailFrame) window.cancelAnimationFrame(trailFrame);
+      if (parallaxFrame) window.cancelAnimationFrame(parallaxFrame);
+      visual.classList.remove("is-pointer-engaged");
       context.clearRect(0, 0, width, height);
     };
   }, [theme]);
@@ -1462,46 +1503,79 @@ export default function Home() {
     );
     const cleanups = cards.map((card) => {
       let frame = 0;
-      let pointerX = 0;
-      let pointerY = 0;
+      let targetX = 0;
+      let targetY = 0;
+      let currentX = 0;
+      let currentY = 0;
+      let targetGlowX = 50;
+      let targetGlowY = 50;
+      let currentGlowX = 50;
+      let currentGlowY = 50;
+      let tracking = false;
+      let bounds: DOMRect | null = null;
 
       const render = () => {
         frame = 0;
-        const bounds = card.getBoundingClientRect();
-        const normalizedX = Math.min(
-          1,
-          Math.max(-1, ((pointerX - bounds.left) / bounds.width - 0.5) * 2),
-        );
-        const normalizedY = Math.min(
-          1,
-          Math.max(-1, ((pointerY - bounds.top) / bounds.height - 0.5) * 2),
-        );
-        card.style.setProperty("--card-tilt-x", `${normalizedY * -3.2}deg`);
-        card.style.setProperty("--card-tilt-y", `${normalizedX * 4.2}deg`);
-        card.style.setProperty("--card-glow-x", `${(normalizedX + 1) * 50}%`);
-        card.style.setProperty("--card-glow-y", `${(normalizedY + 1) * 50}%`);
+        const damping = tracking ? 0.18 : 0.12;
+        currentX += (targetX - currentX) * damping;
+        currentY += (targetY - currentY) * damping;
+        currentGlowX += (targetGlowX - currentGlowX) * damping;
+        currentGlowY += (targetGlowY - currentGlowY) * damping;
+        card.style.setProperty("--card-tilt-x", `${currentY * -2.2}deg`);
+        card.style.setProperty("--card-tilt-y", `${currentX * 3}deg`);
+        card.style.setProperty("--card-glow-x", `${currentGlowX}%`);
+        card.style.setProperty("--card-glow-y", `${currentGlowY}%`);
+
+        const remaining =
+          Math.abs(targetX - currentX) +
+          Math.abs(targetY - currentY) +
+          Math.abs(targetGlowX - currentGlowX) / 50 +
+          Math.abs(targetGlowY - currentGlowY) / 50;
+        if (remaining > 0.004) {
+          frame = window.requestAnimationFrame(render);
+        } else if (!tracking) {
+          card.classList.remove("is-tilting");
+        }
+      };
+      const handleEnter = () => {
+        bounds = card.getBoundingClientRect();
       };
       const handleMove = (event: globalThis.PointerEvent) => {
         if (event.pointerType === "touch") return;
-        pointerX = event.clientX;
-        pointerY = event.clientY;
+        bounds ??= card.getBoundingClientRect();
+        targetX = Math.min(
+          1,
+          Math.max(-1, ((event.clientX - bounds.left) / bounds.width - 0.5) * 2),
+        );
+        targetY = Math.min(
+          1,
+          Math.max(-1, ((event.clientY - bounds.top) / bounds.height - 0.5) * 2),
+        );
+        targetGlowX = (targetX + 1) * 50;
+        targetGlowY = (targetY + 1) * 50;
+        tracking = true;
+        card.classList.add("is-tilting");
         if (!frame) frame = window.requestAnimationFrame(render);
       };
       const handleLeave = () => {
-        if (frame) window.cancelAnimationFrame(frame);
-        frame = 0;
-        card.style.setProperty("--card-tilt-x", "0deg");
-        card.style.setProperty("--card-tilt-y", "0deg");
-        card.style.setProperty("--card-glow-x", "50%");
-        card.style.setProperty("--card-glow-y", "50%");
+        tracking = false;
+        bounds = null;
+        targetX = 0;
+        targetY = 0;
+        targetGlowX = 50;
+        targetGlowY = 50;
+        if (!frame) frame = window.requestAnimationFrame(render);
       };
 
+      card.addEventListener("pointerenter", handleEnter, { passive: true });
       card.addEventListener("pointermove", handleMove, { passive: true });
       card.addEventListener("pointerleave", handleLeave);
       return () => {
+        card.removeEventListener("pointerenter", handleEnter);
         card.removeEventListener("pointermove", handleMove);
         card.removeEventListener("pointerleave", handleLeave);
         if (frame) window.cancelAnimationFrame(frame);
+        card.classList.remove("is-tilting");
       };
     });
 
@@ -1851,6 +1925,7 @@ export default function Home() {
         </div>
 
         <div ref={heroVisual} className="hero-visual" aria-hidden="true">
+          <span className="hero-depth-light" />
           <div className="hero-sigil sigil-day">
             <span className="magic-aura" />
             <svg className="anime-magic" viewBox="0 0 100 100" focusable="false">
@@ -1910,59 +1985,65 @@ export default function Home() {
             aria-hidden="true"
           />
           <canvas ref={trailCanvas} className="sigil-interaction" />
-          <picture>
-            <source
-              media="(max-width: 560px)"
-              type="image/avif"
-              srcSet="/elaina-user-800.avif"
-            />
-            <source
-              type="image/avif"
-              srcSet="/elaina-user-640.avif 640w, /elaina-user-960.avif 960w, /elaina-user-1280.avif 1280w"
-              sizes="(max-width: 560px) 158vw, (max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
-            />
-            <source
-              media="(max-width: 560px)"
-              type="image/webp"
-              srcSet="/elaina-user-800.webp"
-            />
-            <source
-              type="image/webp"
-              srcSet="/elaina-user-640.webp 640w, /elaina-user-960.webp 960w, /elaina-user-1280.webp 1280w"
-              sizes="(max-width: 560px) 158vw, (max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
-            />
-            <img
-              className="hero-character character-elaina"
-              src="/elaina-user-960.webp"
-              alt=""
-              width={1600}
-              height={1438}
-              fetchPriority="high"
-              decoding="async"
-            />
-          </picture>
-          {nightVisualReady && (
+          <div className="hero-character-plane character-plane-day">
             <picture>
               <source
+                media="(max-width: 560px)"
                 type="image/avif"
-                srcSet="/mon3tr-hero-480.avif 480w, /mon3tr-hero-720.avif 720w, /mon3tr-hero-960.avif 960w"
-                sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
+                srcSet="/elaina-user-800.avif 800w, /elaina-user-960.avif 960w"
+                sizes="158vw"
+              />
+              <source
+                type="image/avif"
+                srcSet="/elaina-user-640.avif 640w, /elaina-user-960.avif 960w, /elaina-user-1280.avif 1280w, /elaina-user-1600.avif 1600w"
+                sizes="(max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
+              />
+              <source
+                media="(max-width: 560px)"
+                type="image/webp"
+                srcSet="/elaina-user-800.webp 800w, /elaina-user-960.webp 960w"
+                sizes="158vw"
               />
               <source
                 type="image/webp"
-                srcSet="/mon3tr-hero-480.webp 480w, /mon3tr-hero-720.webp 720w, /mon3tr-hero.webp 1024w"
-                sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
+                srcSet="/elaina-user-640.webp 640w, /elaina-user-960.webp 960w, /elaina-user-1280.webp 1280w, /elaina-user.webp 1600w"
+                sizes="(max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
               />
               <img
-                className="hero-character character-mon3tr"
-                src="/mon3tr-hero-720.webp"
+                className="hero-character character-elaina"
+                src="/elaina-user.webp"
                 alt=""
-                width={1024}
-                height={1536}
-                loading="lazy"
+                width={1600}
+                height={1438}
+                fetchPriority="high"
                 decoding="async"
               />
             </picture>
+          </div>
+          {nightVisualReady && (
+            <div className="hero-character-plane character-plane-night">
+              <picture>
+                <source
+                  type="image/avif"
+                  srcSet="/mon3tr-hero-480.avif 480w, /mon3tr-hero-720.avif 720w, /mon3tr-hero-960.avif 960w, /mon3tr-hero-1024.avif 1024w"
+                  sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
+                />
+                <source
+                  type="image/webp"
+                  srcSet="/mon3tr-hero-480.webp 480w, /mon3tr-hero-720.webp 720w, /mon3tr-hero.webp 1024w"
+                  sizes="(max-width: 560px) 70vw, (max-width: 940px) 49vw, 50vw"
+                />
+                <img
+                  className="hero-character character-mon3tr"
+                  src="/mon3tr-hero.webp"
+                  alt=""
+                  width={1024}
+                  height={1536}
+                  loading="lazy"
+                  decoding="async"
+                />
+              </picture>
+            </div>
           )}
         </div>
 

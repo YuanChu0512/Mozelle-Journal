@@ -972,6 +972,12 @@ html[data-theme="night"] ::selection {
   --mesh-rotate: 0deg;
   --mesh-tilt-x: 0deg;
   --mesh-tilt-y: 0deg;
+  --character-shift-x: 0px;
+  --character-shift-y: 0px;
+  --character-shift-x-rev: 0px;
+  --character-shift-y-rev: 0px;
+  --light-shift-x: 0px;
+  --light-shift-y: 0px;
   position: absolute;
   z-index: 5;
   top: 88px;
@@ -980,6 +986,31 @@ html[data-theme="night"] ::selection {
   width: 59%;
   contain: layout paint style;
   pointer-events: auto;
+}
+
+.hero-depth-light {
+  position: absolute;
+  z-index: 0;
+  top: 44%;
+  left: 55%;
+  width: min(44vw, 620px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(176, 145, 255, 0.2), rgba(218, 188, 255, 0.07) 38%, transparent 72%);
+  opacity: 0.72;
+  pointer-events: none;
+  transform: translate(-50%, -50%) translate3d(var(--light-shift-x), var(--light-shift-y), 0);
+  transition: opacity 650ms ease, background-color 650ms ease;
+}
+
+.theme-night .hero-depth-light {
+  background: radial-gradient(circle, rgba(99, 255, 145, 0.16), rgba(188, 255, 99, 0.045) 42%, transparent 72%);
+  opacity: 0.58;
+}
+
+.hero-visual.is-pointer-engaged .hero-depth-light,
+.hero-visual.is-pointer-engaged .hero-character-plane {
+  will-change: transform;
 }
 
 .hero-sigil {
@@ -1738,6 +1769,39 @@ html[data-theme="night"] ::selection {
 .night-label-one { top: 12%; left: -2%; color: #78f99f; }
 .night-label-two { right: -7%; bottom: 14%; color: #b8ff62; }
 
+.hero-character-plane {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+  transform-style: preserve-3d;
+}
+
+.character-plane-day {
+  transform: translate3d(var(--character-shift-x), var(--character-shift-y), 0);
+}
+
+.character-plane-night {
+  transform: translate3d(var(--character-shift-x-rev), var(--character-shift-y-rev), 0);
+}
+
+.hero-character-plane > picture {
+  position: absolute;
+  inset: 0;
+  display: block;
+  animation: character-breathe 12s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+.character-plane-night > picture {
+  animation-delay: -4.5s;
+  animation-duration: 14s;
+}
+
+.theme-day .character-plane-night > picture,
+.theme-night .character-plane-day > picture {
+  animation-play-state: paused;
+}
+
 .hero-character {
   position: absolute;
   z-index: 3;
@@ -2436,22 +2500,22 @@ html[data-theme="night"] ::selection {
     transform-style: preserve-3d;
   }
 
-  [data-tilt-card]:hover {
+  [data-tilt-card].is-tilting {
     will-change: transform;
   }
 
-  .article-card[data-tilt-card]:hover {
-    transform: perspective(1000px) rotateX(var(--card-tilt-x)) rotateY(var(--card-tilt-y)) translateY(-7px);
-    transition: border-color 260ms ease, transform 80ms linear, box-shadow 260ms ease, background-color 500ms ease;
+  .article-card[data-tilt-card]:is(:hover, .is-tilting) {
+    transform: perspective(1100px) rotateX(var(--card-tilt-x)) rotateY(var(--card-tilt-y)) translateY(-5px);
+    transition: border-color 260ms ease, transform 40ms linear, box-shadow 260ms ease, background-color 500ms ease;
   }
 
-  .collection-card[data-tilt-card]:hover {
-    transform: perspective(1000px) rotateX(var(--card-tilt-x)) rotateY(var(--card-tilt-y)) translateY(-6px);
-    transition: border-color 260ms ease, transform 80ms linear, box-shadow 260ms ease, background-color 500ms ease;
+  .collection-card[data-tilt-card]:is(:hover, .is-tilting) {
+    transform: perspective(1100px) rotateX(var(--card-tilt-x)) rotateY(var(--card-tilt-y)) translateY(-4px);
+    transition: border-color 260ms ease, transform 40ms linear, box-shadow 260ms ease, background-color 500ms ease;
   }
 
-  [data-tilt-card]:hover .card-specular {
-    opacity: 0.72;
+  [data-tilt-card]:is(:hover, .is-tilting) .card-specular {
+    opacity: 0.62;
   }
 }
 
@@ -3102,6 +3166,20 @@ html[data-motion="lite"] .hero-sigil {
   transition-duration: 420ms;
 }
 
+html[data-motion="lite"] .hero-character-plane {
+  transform: none !important;
+  will-change: auto !important;
+}
+
+html[data-motion="lite"] .hero-character-plane > picture {
+  animation: none;
+}
+
+html[data-motion="lite"] .hero-depth-light {
+  transform: translate(-50%, -50%);
+  transition: none;
+}
+
 html[data-motion="lite"] .hero-sigil {
   filter: none;
 }
@@ -3201,8 +3279,62 @@ html[data-motion="lite"] .journey-rail {
   display: none;
 }
 
+@media (min-width: 941px) and (prefers-reduced-motion: no-preference) {
+  .site-header {
+    animation: premium-header-enter 720ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+
+  .hero-kicker {
+    animation: premium-copy-enter 680ms 90ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+
+  .hero h1 {
+    animation: premium-copy-enter 880ms 150ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+
+  .hero-description {
+    animation: premium-copy-enter 760ms 245ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+
+  .hero-actions {
+    animation: premium-copy-enter 740ms 320ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+
+  .interest-tags {
+    animation: premium-copy-enter 720ms 385ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+
+  .hero-visual {
+    animation: premium-visual-enter 1080ms 70ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+
+  .latest-card {
+    animation: premium-copy-enter 760ms 460ms cubic-bezier(0.16, 0.82, 0.18, 1) backwards;
+  }
+}
+
 @keyframes page-progress {
   to { transform: scaleX(1); }
+}
+
+@keyframes premium-header-enter {
+  from { opacity: 0; transform: translate3d(0, -12px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes premium-copy-enter {
+  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes premium-visual-enter {
+  from { opacity: 0; transform: translate3d(28px, 8px, 0) scale(0.985); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes character-breathe {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -5px, 0); }
 }
 
 @keyframes section-jump-veil {
