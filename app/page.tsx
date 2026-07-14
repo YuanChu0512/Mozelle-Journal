@@ -707,8 +707,17 @@ export default function Home() {
     const sourceImage = new window.Image();
     sourceImage.decoding = "async";
 
+    const maxFrameRate = 144;
+    const lowPowerFrameRate = 30;
+    const baselineFrameDuration = 1000 / 32;
+    const refreshSamples: number[] = [];
+    let samplesSinceRefreshUpdate = 0;
     let frame = 0;
-    let lastFrame = 0;
+    let lastAnimationFrame = 0;
+    let lastRenderFrame = 0;
+    let nextRenderAt = 0;
+    let targetFrameRate = lowPower ? lowPowerFrameRate : 60;
+    let targetFrameDuration = 1000 / targetFrameRate;
     let width = 0;
     let height = 0;
     let visualRect = visual.getBoundingClientRect();
@@ -718,15 +727,21 @@ export default function Home() {
     let assemblyStartedAt = 0;
     let inView = visualRect.bottom > 0 && visualRect.top < window.innerHeight;
 
-    const drawParticles = (now: number, update = true) => {
+    const drawParticles = (
+      now: number,
+      update = true,
+      elapsed = baselineFrameDuration,
+    ) => {
       context.clearRect(0, 0, width, height);
       if (!particles.length) return;
 
+      const frameScale = Math.min(3, Math.max(0.2, elapsed / baselineFrameDuration));
       const pointerRadius = lowPower ? 52 : 76;
       const pointerRadiusSquared = pointerRadius * pointerRadius;
       const assembling = assemblyStartedAt > 0 && now - assemblyStartedAt < 1150;
       const spring = lowPower ? 0.024 : assembling ? 0.042 : 0.029;
       const friction = lowPower ? 0.8 : 0.83;
+      const scaledFriction = Math.pow(friction, frameScale);
       const drift = lowPower ? 0.12 : 0.32;
 
       context.globalCompositeOperation = "source-over";
@@ -740,7 +755,7 @@ export default function Home() {
             if (distanceSquared > 0.1 && distanceSquared < pointerRadiusSquared) {
               const distance = Math.sqrt(distanceSquared);
               const falloff = 1 - distance / pointerRadius;
-              const force = falloff * falloff * 2.35;
+              const force = falloff * falloff * 2.35 * frameScale;
               particle.vx += (dx / distance) * force;
               particle.vy += (dy / distance) * force;
             }
@@ -750,10 +765,14 @@ export default function Home() {
             particle.ox + Math.sin(now * 0.00072 + particle.phase) * drift;
           const targetY =
             particle.oy + Math.cos(now * 0.00061 + particle.phase) * drift;
-          particle.vx = (particle.vx + (targetX - particle.x) * spring) * friction;
-          particle.vy = (particle.vy + (targetY - particle.y) * spring) * friction;
-          particle.x += particle.vx;
-          particle.y += particle.vy;
+          particle.vx =
+            (particle.vx + (targetX - particle.x) * spring * frameScale) *
+            scaledFriction;
+          particle.vy =
+            (particle.vy + (targetY - particle.y) * spring * frameScale) *
+            scaledFriction;
+          particle.x += particle.vx * frameScale;
+          particle.y += particle.vy * frameScale;
         }
         context.rect(particle.x, particle.y, particle.size, particle.size);
       }
@@ -778,12 +797,49 @@ export default function Home() {
       context.fill();
     };
 
+    const updateRefreshRate = (now: number) => {
+      if (lastAnimationFrame > 0) {
+        const sample = now - lastAnimationFrame;
+        if (sample >= 3 && sample <= 50) {
+          refreshSamples.push(sample);
+          if (refreshSamples.length > 36) refreshSamples.shift();
+          samplesSinceRefreshUpdate += 1;
+        }
+      }
+      lastAnimationFrame = now;
+
+      if (refreshSamples.length < 18 || samplesSinceRefreshUpdate < 6) return;
+      samplesSinceRefreshUpdate = 0;
+      const sorted = [...refreshSamples].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const measuredFrameRate = Math.max(
+        20,
+        Math.min(maxFrameRate, Math.round(1000 / median)),
+      );
+      targetFrameRate = lowPower
+        ? Math.min(measuredFrameRate, lowPowerFrameRate)
+        : measuredFrameRate;
+      targetFrameDuration = 1000 / targetFrameRate;
+      canvas.dataset.refreshRate = String(Math.round(1000 / median));
+      canvas.dataset.targetFps = String(targetFrameRate);
+    };
+
+    canvas.dataset.targetFps = String(targetFrameRate);
+
     const animate = (now: number) => {
       if (destroyed) return;
-      const frameInterval = lowPower ? 1000 / 16 : 1000 / 32;
-      if (now - lastFrame >= frameInterval) {
-        lastFrame = now;
-        drawParticles(now);
+      updateRefreshRate(now);
+      if (!nextRenderAt) nextRenderAt = now;
+      if (now + 0.25 >= nextRenderAt) {
+        const elapsed = lastRenderFrame
+          ? Math.min(100, now - lastRenderFrame)
+          : targetFrameDuration;
+        lastRenderFrame = now;
+        drawParticles(now, true, elapsed);
+        nextRenderAt += targetFrameDuration;
+        if (now - nextRenderAt > targetFrameDuration * 2) {
+          nextRenderAt = now + targetFrameDuration;
+        }
       }
       frame = window.requestAnimationFrame(animate);
     };
@@ -900,6 +956,9 @@ export default function Home() {
         if (frame) window.cancelAnimationFrame(frame);
         frame = 0;
       } else if (!frame) {
+        lastAnimationFrame = 0;
+        lastRenderFrame = 0;
+        nextRenderAt = 0;
         frame = window.requestAnimationFrame(animate);
       }
     };
@@ -936,6 +995,8 @@ export default function Home() {
       document.removeEventListener("visibilitychange", handleVisibility);
       if (frame) window.cancelAnimationFrame(frame);
       context.clearRect(0, 0, width, height);
+      delete canvas.dataset.refreshRate;
+      delete canvas.dataset.targetFps;
       sourceImage.onload = null;
     };
   }, [theme, transitioning]);
@@ -1819,6 +1880,14 @@ export default function Home() {
               {item.label}
             </a>
           ))}
+          <a
+            className="control-entry"
+            href="/admin"
+            aria-label="Open admin control panel"
+          >
+            <span>06</span>
+            CONTROL
+          </a>
         </nav>
 
         <button
