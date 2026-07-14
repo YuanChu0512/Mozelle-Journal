@@ -7,6 +7,7 @@ import {
   fallbackArticles,
   type Article,
 } from "../../article-data";
+import AmbientEffects from "../../ambient-effects";
 
 type Theme = "day" | "night";
 
@@ -66,6 +67,7 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
 
   return (
     <main className={`site-shell article-page-shell theme-${theme}`}>
+      <AmbientEffects />
       <span className="article-reading-progress" aria-hidden="true" />
       <header className="article-site-header">
         <a className="brand" href="/" aria-label="返回 Mozelle Journal 首页">

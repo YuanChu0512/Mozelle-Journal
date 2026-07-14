@@ -167,6 +167,110 @@ html[data-theme="night"] ::selection {
     var(--bg);
 }
 
+.global-ambient-effects {
+  position: fixed;
+  z-index: 83;
+  inset: 0;
+  overflow: hidden;
+  contain: strict;
+  pointer-events: none;
+}
+
+.global-ambient-effects::before,
+.global-ambient-effects::after {
+  position: absolute;
+  width: min(32vw, 480px);
+  height: min(32vw, 480px);
+  border: 1px solid rgba(var(--accent-rgb), 0.12);
+  content: "";
+  opacity: 0.46;
+  transform: rotate(45deg);
+}
+
+.global-ambient-effects::before {
+  top: -24vw;
+  left: -24vw;
+}
+
+.global-ambient-effects::after {
+  right: -24vw;
+  bottom: -24vw;
+}
+
+.global-pointer-aura {
+  position: absolute;
+  top: -210px;
+  left: -210px;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(var(--accent-2-rgb), 0.12) 0 2%, transparent 4%),
+    radial-gradient(circle, rgba(var(--accent-rgb), 0.12), rgba(var(--accent-rgb), 0.035) 34%, transparent 68%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  transition: opacity 280ms ease;
+  will-change: transform, opacity;
+}
+
+.theme-night .global-pointer-aura {
+  background:
+    radial-gradient(circle, rgba(var(--accent-2-rgb), 0.22) 0 2%, transparent 4%),
+    radial-gradient(circle, rgba(var(--accent-rgb), 0.17), rgba(var(--accent-rgb), 0.045) 36%, transparent 69%);
+}
+
+.global-pointer-aura[data-active="true"] {
+  opacity: 1;
+}
+
+.global-pointer-ring {
+  position: absolute;
+  border: 1px solid rgba(var(--accent-rgb), 0.16);
+  border-radius: 50%;
+  animation-play-state: paused;
+}
+
+.global-pointer-aura[data-active="true"] .global-pointer-ring {
+  animation-play-state: running;
+}
+
+.global-pointer-ring::after {
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.74);
+  content: "";
+}
+
+.global-pointer-ring.ring-outer {
+  inset: 24%;
+  border-style: dashed;
+  animation: ambient-ring-spin 18s linear infinite;
+}
+
+.global-pointer-ring.ring-inner {
+  inset: 37%;
+  border-color: rgba(var(--accent-2-rgb), 0.19);
+  animation: ambient-ring-spin-reverse 12s linear infinite;
+}
+
+.global-edge-signal {
+  position: absolute;
+  top: 50%;
+  width: 1px;
+  height: min(32vh, 280px);
+  background: linear-gradient(transparent, rgba(var(--accent-rgb), 0.46), transparent);
+  opacity: 0.38;
+  transform: translateY(-50%);
+}
+
+.edge-signal-left { left: clamp(12px, 1.4vw, 26px); }
+.edge-signal-right { right: clamp(12px, 1.4vw, 26px); }
+
 .journey-rail {
   position: fixed;
   z-index: 84;
@@ -2100,6 +2204,8 @@ html[data-theme="night"] ::selection {
 
 .section-heading h2,
 .about-copy h2 {
+  position: relative;
+  display: inline-block;
   margin: 0;
   color: var(--ink);
   font-family: "Noto Serif SC", "Songti SC", serif;
@@ -2524,6 +2630,22 @@ html[data-theme="night"] ::selection {
   opacity: 0;
   pointer-events: none;
   transition: opacity 220ms ease;
+}
+
+.card-specular::after {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 28%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.46), transparent);
+  content: "";
+  opacity: 0;
+  transform: translate3d(-180%, 0, 0) skewX(-14deg);
+}
+
+[data-tilt-card]:is(:hover, .is-tilting) .card-specular::after {
+  animation: card-specular-sweep 760ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
 }
 
 @media (min-width: 941px) and (pointer: fine) {
@@ -3325,6 +3447,28 @@ html[data-motion="lite"] .hero-sigil {
   line-height: 1.12;
 }
 
+.section-heading h2::after,
+.about-copy h2::after {
+  position: absolute;
+  right: 6%;
+  bottom: -13px;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2) 68%, transparent);
+  box-shadow: 0 0 13px rgba(var(--accent-rgb), 0.45);
+  content: "";
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.content-section[data-section-state="active"] .section-heading h2::after,
+.content-section[data-section-state="active"] .about-copy h2::after,
+.section-heading.reveal-pending.is-revealed h2::after,
+.about-copy.reveal-pending.is-revealed h2::after {
+  animation: heading-energy-awaken 880ms 90ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
+}
+
 .article-reader-hero > p {
   max-width: 720px;
   margin: 0;
@@ -3682,7 +3826,8 @@ html[data-motion="lite"] [data-tilt-card] {
 }
 
 html[data-motion="lite"] .card-specular,
-html[data-motion="lite"] .journey-rail {
+html[data-motion="lite"] .journey-rail,
+html[data-motion="lite"] .global-ambient-effects {
   display: none;
 }
 
@@ -3773,6 +3918,26 @@ html[data-motion="lite"] .journey-rail {
   24% { opacity: 0.95; }
   72% { opacity: 0.68; }
   100% { opacity: 0; transform: translate3d(520%, 0, 0) scaleX(1); }
+}
+
+@keyframes heading-energy-awaken {
+  0% { opacity: 0; transform: scaleX(0); }
+  46% { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0.58; transform: scaleX(0.72); }
+}
+
+@keyframes card-specular-sweep {
+  0% { opacity: 0; transform: translate3d(-180%, 0, 0) skewX(-14deg); }
+  24% { opacity: 0.72; }
+  100% { opacity: 0; transform: translate3d(480%, 0, 0) skewX(-14deg); }
+}
+
+@keyframes ambient-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ambient-ring-spin-reverse {
+  to { transform: rotate(-360deg); }
 }
 
 @keyframes rune-awaken {
@@ -4216,6 +4381,10 @@ html[data-motion="lite"] .journey-rail {
 }
 
 @media (max-width: 940px) {
+  .global-ambient-effects {
+    display: none;
+  }
+
   .site-header,
   .site-nav,
   .latest-card,
@@ -4532,7 +4701,8 @@ html[data-motion="lite"] .journey-rail {
   }
 
   .journey-rail,
-  .card-specular {
+  .card-specular,
+  .global-ambient-effects {
     display: none;
   }
 

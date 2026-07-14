@@ -13,6 +13,7 @@ import {
   type Article,
   type Filter,
 } from "./article-data";
+import AmbientEffects from "./ambient-effects";
 
 type Theme = "day" | "night";
 
@@ -843,7 +844,10 @@ export default function Home() {
           vx: 0,
           vy: 0,
           phase: Math.random() * Math.PI * 2,
-          size: Math.max(1.05, Math.min(2.15, scale * 0.72)),
+          size: Math.max(
+            lowPower ? 1.16 : 1.3,
+            Math.min(lowPower ? 2.28 : 2.58, scale * (lowPower ? 0.8 : 0.92)),
+          ),
           bright: index % 13 === 0,
         });
       });
@@ -1649,6 +1653,7 @@ export default function Home() {
       id="top"
       className={`site-shell theme-${theme} ${transitioning ? "is-switching" : ""}`}
     >
+      <AmbientEffects />
       <span className="page-scroll-progress" aria-hidden="true" />
       <aside className="journey-rail" aria-hidden="true">
         <span className="journey-track" />
