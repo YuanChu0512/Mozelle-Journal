@@ -777,8 +777,8 @@ export default function Home() {
         context.rect(particle.x, particle.y, particle.size, particle.size);
       }
       context.fillStyle = lowPower
-        ? "rgba(130, 255, 165, .8)"
-        : "rgba(118, 255, 158, .9)";
+        ? "rgba(148, 255, 178, .88)"
+        : "rgba(136, 255, 171, .96)";
       context.fill();
 
       context.beginPath();
@@ -793,7 +793,7 @@ export default function Home() {
           glowSize,
         );
       }
-      context.fillStyle = "rgba(224, 255, 118, .98)";
+      context.fillStyle = "rgba(238, 255, 148, 1)";
       context.fill();
     };
 
@@ -920,7 +920,7 @@ export default function Home() {
           vy: 0,
           phase: Math.random() * Math.PI * 2,
           size: Math.max(1.05, Math.min(2.15, scale * 0.72)),
-          bright: index % 19 === 0,
+          bright: index % 13 === 0,
         });
       });
 

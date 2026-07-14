@@ -1740,7 +1740,7 @@ html[data-theme="night"] ::selection {
 }
 
 .theme-night .rhodes-particle-logo {
-  opacity: 0.46;
+  opacity: 0.64;
   transform: scale(1);
 }
 
@@ -3845,7 +3845,7 @@ html[data-motion="lite"] .journey-rail {
   }
 
   .theme-night .rhodes-particle-logo {
-    opacity: 0.28;
+    opacity: 0.42;
   }
 
   .hero-copy,
