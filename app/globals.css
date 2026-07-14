@@ -176,100 +176,19 @@ html[data-theme="night"] ::selection {
   pointer-events: none;
 }
 
-.global-ambient-effects::before,
-.global-ambient-effects::after {
+.originium-wake-canvas {
   position: absolute;
-  width: min(32vw, 480px);
-  height: min(32vw, 480px);
-  border: 1px solid rgba(var(--accent-rgb), 0.12);
-  content: "";
-  opacity: 0.46;
-  transform: rotate(45deg);
+  inset: 0;
+  display: block;
+  mix-blend-mode: multiply;
+  opacity: 0.82;
+  will-change: contents;
 }
 
-.global-ambient-effects::before {
-  top: -24vw;
-  left: -24vw;
-}
-
-.global-ambient-effects::after {
-  right: -24vw;
-  bottom: -24vw;
-}
-
-.global-pointer-aura {
-  position: absolute;
-  top: -210px;
-  left: -210px;
-  width: 420px;
-  height: 420px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(var(--accent-2-rgb), 0.12) 0 2%, transparent 4%),
-    radial-gradient(circle, rgba(var(--accent-rgb), 0.12), rgba(var(--accent-rgb), 0.035) 34%, transparent 68%);
+.theme-night .originium-wake-canvas {
   mix-blend-mode: screen;
-  opacity: 0;
-  transition: opacity 280ms ease;
-  will-change: transform, opacity;
-}
-
-.theme-night .global-pointer-aura {
-  background:
-    radial-gradient(circle, rgba(var(--accent-2-rgb), 0.22) 0 2%, transparent 4%),
-    radial-gradient(circle, rgba(var(--accent-rgb), 0.17), rgba(var(--accent-rgb), 0.045) 36%, transparent 69%);
-}
-
-.global-pointer-aura[data-active="true"] {
   opacity: 1;
 }
-
-.global-pointer-ring {
-  position: absolute;
-  border: 1px solid rgba(var(--accent-rgb), 0.16);
-  border-radius: 50%;
-  animation-play-state: paused;
-}
-
-.global-pointer-aura[data-active="true"] .global-pointer-ring {
-  animation-play-state: running;
-}
-
-.global-pointer-ring::after {
-  position: absolute;
-  top: 50%;
-  right: -3px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent-bright);
-  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.74);
-  content: "";
-}
-
-.global-pointer-ring.ring-outer {
-  inset: 24%;
-  border-style: dashed;
-  animation: ambient-ring-spin 18s linear infinite;
-}
-
-.global-pointer-ring.ring-inner {
-  inset: 37%;
-  border-color: rgba(var(--accent-2-rgb), 0.19);
-  animation: ambient-ring-spin-reverse 12s linear infinite;
-}
-
-.global-edge-signal {
-  position: absolute;
-  top: 50%;
-  width: 1px;
-  height: min(32vh, 280px);
-  background: linear-gradient(transparent, rgba(var(--accent-rgb), 0.46), transparent);
-  opacity: 0.38;
-  transform: translateY(-50%);
-}
-
-.edge-signal-left { left: clamp(12px, 1.4vw, 26px); }
-.edge-signal-right { right: clamp(12px, 1.4vw, 26px); }
 
 .journey-rail {
   position: fixed;
@@ -3930,14 +3849,6 @@ html[data-motion="lite"] .global-ambient-effects {
   0% { opacity: 0; transform: translate3d(-180%, 0, 0) skewX(-14deg); }
   24% { opacity: 0.72; }
   100% { opacity: 0; transform: translate3d(480%, 0, 0) skewX(-14deg); }
-}
-
-@keyframes ambient-ring-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes ambient-ring-spin-reverse {
-  to { transform: rotate(-360deg); }
 }
 
 @keyframes rune-awaken {
