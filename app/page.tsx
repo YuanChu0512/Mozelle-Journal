@@ -1912,9 +1912,19 @@ export default function Home() {
           <canvas ref={trailCanvas} className="sigil-interaction" />
           <picture>
             <source
+              media="(max-width: 560px)"
+              type="image/avif"
+              srcSet="/elaina-user-800.avif"
+            />
+            <source
               type="image/avif"
               srcSet="/elaina-user-640.avif 640w, /elaina-user-960.avif 960w, /elaina-user-1280.avif 1280w"
               sizes="(max-width: 560px) 158vw, (max-width: 940px) 128vw, (max-width: 1180px) 62vw, 78vw"
+            />
+            <source
+              media="(max-width: 560px)"
+              type="image/webp"
+              srcSet="/elaina-user-800.webp"
             />
             <source
               type="image/webp"
