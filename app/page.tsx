@@ -888,7 +888,7 @@ export default function Home() {
         width * (compactLayout ? 0.94 : 0.44),
         height * (compactLayout ? 0.5 : 0.72),
       );
-      const centerX = width * (compactLayout ? 0.5 : 0.245);
+      const centerX = width * (compactLayout ? 0.5 : 0.27);
       const centerY = height * (compactLayout ? 0.34 : 0.365);
       const offsetX = centerX - logoSize / 2;
       const offsetY = centerY - logoSize / 2;

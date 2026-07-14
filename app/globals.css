@@ -1733,7 +1733,7 @@ html[data-theme="night"] ::selection {
   mix-blend-mode: screen;
   pointer-events: none;
   transform: translate3d(-8px, -6px, 0) scale(0.9);
-  transform-origin: 24.5% 36.5%;
+  transform-origin: 27% 36.5%;
   transition:
     opacity 620ms cubic-bezier(0.2, 0.8, 0.2, 1),
     transform 860ms cubic-bezier(0.2, 0.85, 0.2, 1);
@@ -3573,6 +3573,76 @@ html[data-motion="lite"] .journey-rail {
   0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--r)) translateY(0) scale(0.2); }
   20% { opacity: 0.9; }
   100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--r)) translateY(-38vmax) scale(1.35); }
+}
+
+@media (min-width: 1600px) {
+  .site-shell::before,
+  .site-shell::after {
+    position: fixed;
+    z-index: 0;
+    top: 112px;
+    bottom: 32px;
+    width: clamp(54px, 4vw, 96px);
+    content: "";
+    background:
+      linear-gradient(var(--line), var(--line)) 50% 0 / 1px 100% no-repeat,
+      repeating-linear-gradient(
+        0deg,
+        transparent 0 31px,
+        color-mix(in srgb, var(--line-strong), transparent 42%) 32px 33px
+      );
+    opacity: 0.34;
+    mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent);
+    pointer-events: none;
+  }
+
+  .site-shell::before {
+    left: clamp(18px, 2.5vw, 72px);
+  }
+
+  .site-shell::after {
+    right: clamp(18px, 2.5vw, 72px);
+  }
+
+  .hero {
+    width: min(100%, 2400px);
+    grid-template-columns: minmax(520px, 0.84fr) minmax(680px, 1.16fr);
+    padding-right: clamp(88px, 5.2vw, 122px);
+    padding-left: clamp(88px, 5.2vw, 122px);
+  }
+
+  .hero-visual {
+    width: 61%;
+  }
+
+  .latest-card {
+    left: clamp(88px, 5.2vw, 122px);
+    width: min(52%, 840px);
+  }
+
+  .content-section,
+  .site-footer {
+    width: min(100%, 2040px);
+  }
+
+  .content-section {
+    padding-right: clamp(88px, 5.2vw, 122px);
+    padding-left: clamp(88px, 5.2vw, 122px);
+  }
+
+  .content-section::before {
+    right: clamp(88px, 5.2vw, 122px);
+    left: clamp(88px, 5.2vw, 122px);
+  }
+
+  .lab-section > * {
+    width: min(100%, 1796px);
+  }
+
+  .site-footer {
+    padding-right: clamp(88px, 5.2vw, 122px);
+    padding-left: clamp(88px, 5.2vw, 122px);
+  }
 }
 
 @media (max-width: 1180px) {
