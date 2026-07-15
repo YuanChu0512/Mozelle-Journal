@@ -2,12 +2,14 @@
 
 /* eslint-disable @next/next/no-html-link-for-pages */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   fallbackArticles,
   type Article,
 } from "../../article-data";
 import AmbientEffects from "../../ambient-effects";
+import { articleCopy, categoryLabels, localizeArticle } from "../../i18n";
+import { LanguageReassembly, useLanguageSwitcher } from "../../language-switcher";
 
 type Theme = "day" | "night";
 
@@ -18,6 +20,17 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
     fallbackArticle ? "ready" : "loading",
   );
   const [theme, setTheme] = useState<Theme>("day");
+  const {
+    language,
+    switching: languageSwitching,
+    targetLanguage,
+    toggleLanguage,
+  } = useLanguageSwitcher();
+  const copy = articleCopy[language];
+  const displayedArticle = useMemo(
+    () => article ? localizeArticle(article, language) : null,
+    [article, language],
+  );
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("mozelle-theme");
@@ -66,11 +79,15 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
   };
 
   return (
-    <main className={`site-shell article-page-shell theme-${theme}`}>
+    <main
+      className={`site-shell article-page-shell theme-${theme} ${languageSwitching ? "is-language-switching" : ""}`}
+      data-language={language}
+    >
       <AmbientEffects />
+      <LanguageReassembly active={languageSwitching} target={targetLanguage} />
       <span className="article-reading-progress" aria-hidden="true" />
       <header className="article-site-header">
-        <a className="brand" href="/" aria-label="返回 Mozelle Journal 首页">
+        <a className="brand" href="/" aria-label={copy.homeLabel}>
           <span className="brand-mark" aria-hidden="true"><span /></span>
           <span className="brand-copy">
             <strong>Mozelle Journal</strong>
@@ -78,14 +95,23 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
           </span>
         </a>
         <span className="article-header-code">
-          {article?.code ?? "ARTICLE / LOADING"}
+          {displayedArticle?.code ?? "ARTICLE / LOADING"}
         </span>
         <div className="article-header-actions">
-          <a href="/#articles" aria-label="返回文章列表">
-            <span className="article-back-full" aria-hidden="true">返回文章列表</span>
-            <span className="article-back-short" aria-hidden="true">返回</span>
+          <a href="/#articles" aria-label={copy.back}>
+            <span className="article-back-full" data-lang-token>{copy.back}</span>
+            <span className="article-back-short" data-lang-token>{copy.backShort}</span>
           </a>
-          <button type="button" onClick={toggleTheme} aria-label="切换日间与夜间主题">
+          <button
+            className="article-language-toggle"
+            type="button"
+            onClick={toggleLanguage}
+            disabled={languageSwitching}
+            aria-label={copy.languageLabel}
+          >
+            {language === "zh" ? "EN" : "中"}
+          </button>
+          <button type="button" onClick={toggleTheme} aria-label={copy.themeLabel}>
             {theme === "day" ? "DAY" : "NIGHT"}
           </button>
         </div>
@@ -94,7 +120,7 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
       {status === "loading" && (
         <section className="article-state" aria-live="polite">
           <span>ARTICLE / SYNCING</span>
-          <h1>正在载入文章</h1>
+          <h1 data-lang-token>{copy.loading}</h1>
           <div className="article-state-line" />
         </section>
       )}
@@ -102,23 +128,23 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
       {status === "missing" && (
         <section className="article-state">
           <span>ARTICLE / 404</span>
-          <h1>没有找到这篇文章</h1>
-          <p>文章可能尚未发布，或者地址已经发生变化。</p>
-          <a href="/#articles">返回文章列表 →</a>
+          <h1 data-lang-token>{copy.missing}</h1>
+          <p data-lang-token>{copy.missingBody}</p>
+          <a href="/#articles"><span data-lang-token>{copy.back}</span> →</a>
         </section>
       )}
 
-      {status === "ready" && article && (
+      {status === "ready" && displayedArticle && (
         <article className="article-reader">
           <header className="article-reader-hero">
             <div className="article-reader-meta">
-              <span>{article.code}</span>
-              <span>{article.category}</span>
-              <span>{article.date}</span>
-              <span>{article.readTime}</span>
+              <span>{displayedArticle.code}</span>
+              <span data-lang-token>{categoryLabels[language][displayedArticle.category]}</span>
+              <span>{displayedArticle.date}</span>
+              <span>{displayedArticle.readTime}</span>
             </div>
-            <h1>{article.title}</h1>
-            <p>{article.summary}</p>
+            <h1 data-lang-token>{displayedArticle.title}</h1>
+            <p data-lang-token>{displayedArticle.summary}</p>
             <div className="article-reader-signal" aria-hidden="true">
               <span />
               <span />
@@ -126,35 +152,35 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
             </div>
           </header>
 
-          {article.coverUrl ? (
+          {displayedArticle.coverUrl ? (
             <figure className="article-reader-cover">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={article.coverUrl} alt="" decoding="async" />
+              <img src={displayedArticle.coverUrl} alt="" decoding="async" />
             </figure>
           ) : (
             <div className="article-reader-visual" aria-hidden="true">
               <span className="article-reader-orbit" />
-              <span className="article-reader-core">{article.code.split("/")[0].trim()}</span>
-              <span className="article-reader-coordinate">MOZELLE / ARCHIVE / {article.date}</span>
+              <span className="article-reader-core">{displayedArticle.code.split("/")[0].trim()}</span>
+              <span className="article-reader-coordinate">MOZELLE / ARCHIVE / {displayedArticle.date}</span>
             </div>
           )}
 
-          {article.contentHtml ? (
+          {displayedArticle.contentHtml ? (
             <div
               className="article-reader-content article-rich-content"
-              dangerouslySetInnerHTML={{ __html: article.contentHtml }}
+              dangerouslySetInnerHTML={{ __html: displayedArticle.contentHtml }}
             />
           ) : (
             <div className="article-reader-content">
-              {article.content.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+              {displayedArticle.content.map((paragraph) => <p data-lang-token key={paragraph}>{paragraph}</p>)}
             </div>
           )}
 
           <footer className="article-reader-footer">
             <div>
-              {article.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+              {displayedArticle.tags.map((tag) => <span data-lang-token key={tag}>#{tag}</span>)}
             </div>
-            <a href="/#articles">阅读其他文章 <span aria-hidden="true">↗</span></a>
+            <a href="/#articles"><span data-lang-token>{copy.other}</span> <span aria-hidden="true">↗</span></a>
           </footer>
         </article>
       )}

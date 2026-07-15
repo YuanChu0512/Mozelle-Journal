@@ -14,15 +14,17 @@ import {
   type Filter,
 } from "./article-data";
 import AmbientEffects from "./ambient-effects";
+import { categoryLabels, homeCopy, localizeArticle } from "./i18n";
+import { LanguageReassembly, useLanguageSwitcher } from "./language-switcher";
 
 type Theme = "day" | "night";
 
 const navItems = [
-  { label: "首页", href: "#top" },
-  { label: "技术文章", href: "#articles" },
-  { label: "超频笔记", href: "#lab" },
-  { label: "次元收藏", href: "#collection" },
-  { label: "关于", href: "#about" },
+  { href: "#top" },
+  { href: "#articles" },
+  { href: "#lab" },
+  { href: "#collection" },
+  { href: "#about" },
 ];
 
 type PublicSettings = {
@@ -40,51 +42,37 @@ const fallbackSettings: PublicSettings = {
 const labNotes = [
   {
     index: "01",
-    title: "内存超频",
     value: "DDR5 / AM5",
-    detail: "频率、主次时序、训练与稳定性测试记录",
   },
   {
     index: "02",
-    title: "板级分析",
     value: "POWER / PCB",
-    detail: "PMIC、DrMOS、MOSFET 与供电路径拆解",
   },
   {
     index: "03",
-    title: "显示制造",
     value: "TFT-LCD / CUT",
-    detail: "切割、研磨、清洗、检查与设备参数笔记",
   },
 ];
 
 const collections = [
   {
     number: "01",
-    title: "魔女之旅",
     subtitle: "ELAINA / DAYLIGHT",
-    description: "灰发、旅行与故事。白昼主题的灵感原点。",
     className: "collection-elaina",
   },
   {
     number: "02",
-    title: "Mon3tr",
     subtitle: "MON3TR / NIGHTFALL",
-    description: "源石、生体机械与锋利的绿色能量。",
     className: "collection-mon3tr",
   },
   {
     number: "03",
-    title: "Cosplay 记录",
     subtitle: "COS / FRAME",
-    description: "造型、布光、拍摄与每一次角色表达。",
     className: "collection-cos",
   },
   {
     number: "04",
-    title: "游戏档案",
     subtitle: "GAME / ARCHIVE",
-    description: "喜欢的世界、机制，以及值得留下的瞬间。",
     className: "collection-game",
   },
 ];
@@ -123,6 +111,13 @@ export default function Home() {
   const [transitionTarget, setTransitionTarget] = useState<Theme>("night");
   const [nightVisualReady, setNightVisualReady] = useState(false);
   const [nightMotionPhase, setNightMotionPhase] = useState(0);
+  const {
+    language,
+    switching: languageSwitching,
+    targetLanguage,
+    toggleLanguage,
+  } = useLanguageSwitcher();
+  const copy = homeCopy[language];
   const [activeSection, setActiveSection] = useState("top");
   const [sectionJump, setSectionJump] = useState<{
     key: number;
@@ -1409,15 +1404,17 @@ export default function Home() {
     };
   }, [sphereMotionReady]);
 
-  const visibleArticles = useMemo(
-    () =>
-      filter === "全部"
-        ? articles
-        : articles.filter((article) => article.category === filter),
-    [filter, articles],
-  );
+  const visibleArticles = useMemo(() => {
+    const filtered = filter === "全部"
+      ? articles
+      : articles.filter((article) => article.category === filter);
+    return filtered.map((article) => localizeArticle(article, language));
+  }, [filter, articles, language]);
 
-  const latestArticle = articles[0] ?? fallbackArticles[0];
+  const latestArticle = localizeArticle(
+    articles[0] ?? fallbackArticles[0],
+    language,
+  );
 
   useEffect(() => {
     if (
@@ -1593,9 +1590,11 @@ export default function Home() {
   return (
     <main
       id="top"
-      className={`site-shell theme-${theme} ${transitioning ? "is-switching" : ""}`}
+      className={`site-shell theme-${theme} ${transitioning ? "is-switching" : ""} ${languageSwitching ? "is-language-switching" : ""}`}
+      data-language={language}
     >
       <AmbientEffects />
+      <LanguageReassembly active={languageSwitching} target={targetLanguage} />
       <span className="page-scroll-progress" aria-hidden="true" />
       <aside className="journey-rail" aria-hidden="true">
         <span className="journey-track" />
@@ -1665,7 +1664,7 @@ export default function Home() {
         <button
           className={`menu-toggle ${menuOpen ? "is-open" : ""}`}
           type="button"
-          aria-label={menuOpen ? "关闭导航" : "打开导航"}
+          aria-label={menuOpen ? copy.closeMenu : copy.openMenu}
           aria-expanded={menuOpen}
           aria-controls="main-navigation"
           onClick={() => setMenuOpen((open) => !open)}
@@ -1674,7 +1673,7 @@ export default function Home() {
           <span />
         </button>
 
-        <nav id="main-navigation" className={`site-nav ${menuOpen ? "is-open" : ""}`} aria-label="主导航">
+        <nav id="main-navigation" className={`site-nav ${menuOpen ? "is-open" : ""}`} aria-label={copy.mainNav}>
           {navItems.map((item, index) => (
             <a
               href={item.href}
@@ -1685,45 +1684,54 @@ export default function Home() {
               onClick={handleSectionNavigation}
             >
               <span>{String(index + 1).padStart(2, "0")}</span>
-              {item.label}
+              <b className="nav-label" data-lang-token>{copy.nav[index]}</b>
             </a>
           ))}
           <a
             className="control-entry"
             href="/admin"
-            aria-label="Open admin control panel"
+            aria-label={copy.adminLabel}
           >
             <span>06</span>
             CONTROL
           </a>
         </nav>
 
-        <button
-          className="theme-toggle"
-          type="button"
-          onClick={toggleTheme}
-          onPointerEnter={() => setNightVisualReady(true)}
-          onFocus={() => setNightVisualReady(true)}
-          disabled={transitioning}
-          aria-label={
-            theme === "day"
-              ? "DAY NIGHT 主题切换：切换到 Mon3tr 黑夜主题"
-              : "DAY NIGHT 主题切换：切换到伊蕾娜白昼主题"
-          }
-          aria-pressed={theme === "night"}
-        >
-          <span className="toggle-track" aria-hidden="true">
-            <span className="toggle-thumb" />
-            <span className="toggle-option toggle-day">
-              <span className="toggle-symbol">☼</span>
-              <span className="toggle-option-label">DAY</span>
+        <div className="header-controls">
+          <button
+            className="language-toggle"
+            type="button"
+            onClick={toggleLanguage}
+            disabled={languageSwitching}
+            aria-label={copy.languageLabel}
+          >
+            <span className={language === "zh" ? "is-active" : ""}>中</span>
+            <i aria-hidden="true" />
+            <span className={language === "en" ? "is-active" : ""}>EN</span>
+          </button>
+          <button
+            className="theme-toggle"
+            type="button"
+            onClick={toggleTheme}
+            onPointerEnter={() => setNightVisualReady(true)}
+            onFocus={() => setNightVisualReady(true)}
+            disabled={transitioning}
+            aria-label={theme === "day" ? copy.themeDayLabel : copy.themeNightLabel}
+            aria-pressed={theme === "night"}
+          >
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+              <span className="toggle-option toggle-day">
+                <span className="toggle-symbol">☼</span>
+                <span className="toggle-option-label">DAY</span>
+              </span>
+              <span className="toggle-option toggle-night">
+                <span className="toggle-symbol toggle-m3">M3</span>
+                <span className="toggle-option-label">NIGHT</span>
+              </span>
             </span>
-            <span className="toggle-option toggle-night">
-              <span className="toggle-symbol toggle-m3">M3</span>
-              <span className="toggle-option-label">NIGHT</span>
-            </span>
-          </span>
-        </button>
+          </button>
+        </div>
       </header>
 
       <section
@@ -1755,23 +1763,23 @@ export default function Home() {
             <span>{theme === "day" ? "DAYLIGHT / ELAINA" : "NIGHTFALL / MON3TR"}</span>
             <span className="kicker-code">{theme === "day" ? "EI-017" : "M3-010"}</span>
           </div>
-          <h1 id="hero-title">
+          <h1 id="hero-title" data-lang-token>
             {theme === "day" ? (
               <>
-                在旅途与电路之间，
+                {copy.heroDay[0]}
                 <br />
-                记录我的热爱。
+                {copy.heroDay[1]}
               </>
             ) : (
               <>
-                在源石与电路之间，
+                {copy.heroNight[0]}
                 <br />
-                点亮每一次探索。
+                {copy.heroNight[1]}
               </>
             )}
           </h1>
-          <p className="hero-description">
-            {siteSettings.bio} 把拆解问题的过程，写成可以反复查阅的记录。
+          <p className="hero-description" data-lang-token>
+            {language === "zh" ? siteSettings.bio : copy.bio} {copy.heroBioSuffix}
           </p>
           <div className="hero-actions">
             <a
@@ -1781,7 +1789,7 @@ export default function Home() {
               onClick={handleSectionNavigation}
             >
               <span className="button-spark" aria-hidden="true">✦</span>
-              进入博客
+              <span data-lang-token>{copy.enterBlog}</span>
             </a>
             <a
               className="button button-secondary"
@@ -1789,11 +1797,11 @@ export default function Home() {
               data-transition-label="LAB NOTES"
               onClick={handleSectionNavigation}
             >
-              查看实验记录
+              <span data-lang-token>{copy.labAction}</span>
               <span aria-hidden="true">↗</span>
             </a>
           </div>
-          <ul className="interest-tags" aria-label="兴趣领域">
+          <ul className="interest-tags" aria-label={copy.interestsLabel}>
             <li><span>◈</span> ELECTRONICS</li>
             <li><span>⌁</span> OVERCLOCKING</li>
             <li><span>✧</span> COSPLAY</li>
@@ -1926,19 +1934,19 @@ export default function Home() {
         <a
           className="latest-card"
           href={`/articles/${encodeURIComponent(latestArticle.id)}`}
-          aria-label={`阅读最新文章：${latestArticle.title}`}
+          aria-label={copy.latestLabel(latestArticle.title)}
         >
           <span className="latest-meta">
-            <span>✥ 最新文章</span>
+            <span data-lang-token>✥ {copy.latest}</span>
             <span>{latestArticle.date}</span>
           </span>
-          <strong>{latestArticle.title}</strong>
+          <strong data-lang-token>{latestArticle.title}</strong>
           <span className="latest-arrow" aria-hidden="true">→</span>
         </a>
         <a
           className="scroll-cue"
           href="#articles"
-          aria-label="SCROLL，向下浏览文章"
+          aria-label={copy.scrollLabel}
           data-transition-label="ARTICLES"
           onClick={handleSectionNavigation}
         >
@@ -1957,15 +1965,15 @@ export default function Home() {
         <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">01 / ARTICLES</span>
-            <h2>技术文章</h2>
+            <h2 data-lang-token>{copy.articlesTitle}</h2>
           </div>
-          <p>从原理出发，也保留每一次调试中真正有用的细节。</p>
+          <p data-lang-token>{copy.articlesIntro}</p>
         </div>
 
         <div
           className="filter-bar"
           role="group"
-          aria-label="文章分类筛选"
+          aria-label={copy.filterLabel}
           data-reveal="up"
         >
           {filters.map((item) => (
@@ -1976,7 +1984,7 @@ export default function Home() {
               aria-pressed={filter === item}
               onClick={() => setFilter(item)}
             >
-              {item}
+              <span data-lang-token>{categoryLabels[language][item]}</span>
             </button>
           ))}
         </div>
@@ -1999,15 +2007,15 @@ export default function Home() {
                 <span className="visual-number">{String(index + 1).padStart(2, "0")}</span>
               </div>
               <div className="article-body">
-                <span className="article-category">{article.category}</span>
-                <h3>{article.title}</h3>
-                <p>{article.summary}</p>
+                <span className="article-category" data-lang-token>{categoryLabels[language][article.category]}</span>
+                <h3 data-lang-token>{article.title}</h3>
+                <p data-lang-token>{article.summary}</p>
                 <div className="article-footer">
                   <div>
-                    {article.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+                    {article.tags.map((tag) => <span data-lang-token key={tag}>#{tag}</span>)}
                   </div>
                   <a href={`/articles/${encodeURIComponent(article.id)}`}>
-                    阅读 <span aria-hidden="true">↗</span>
+                    <span data-lang-token>{copy.read}</span> <span aria-hidden="true">↗</span>
                   </a>
                 </div>
               </div>
@@ -2026,9 +2034,9 @@ export default function Home() {
         <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">02 / LAB NOTES</span>
-            <h2>实验与超频笔记</h2>
+            <h2 data-lang-token>{copy.labTitle}</h2>
           </div>
-          <p>不只展示结果，也记录失败参数、判断过程和下一步。</p>
+          <p data-lang-token>{copy.labIntro}</p>
         </div>
         <div className="lab-console" data-reveal="up">
           <div className="console-header">
@@ -2036,12 +2044,12 @@ export default function Home() {
             <span>STATUS / ONLINE</span>
           </div>
           <div className="lab-list">
-            {labNotes.map((note) => (
+            {labNotes.map((note, index) => (
               <article key={note.index}>
                 <span className="lab-index">{note.index}</span>
                 <div>
-                  <h3>{note.title}</h3>
-                  <p>{note.detail}</p>
+                  <h3 data-lang-token>{copy.labNotes[index][0]}</h3>
+                  <p data-lang-token>{copy.labNotes[index][1]}</p>
                 </div>
                 <strong>{note.value}</strong>
                 <span className="lab-arrow" aria-hidden="true">↗</span>
@@ -2066,12 +2074,12 @@ export default function Home() {
         <div className="section-heading" data-reveal="up">
           <div>
             <span className="section-index">03 / DIMENSION</span>
-            <h2>次元收藏</h2>
+            <h2 data-lang-token>{copy.collectionTitle}</h2>
           </div>
-          <p>角色、游戏与 Cosplay，是技术之外同样认真保存的世界。</p>
+          <p data-lang-token>{copy.collectionIntro}</p>
         </div>
         <div className="collection-grid" data-reveal="up">
-          {collections.map((item) => (
+          {collections.map((item, index) => (
             <article
               className={`collection-card ${item.className}`}
               key={item.number}
@@ -2085,8 +2093,8 @@ export default function Home() {
               </div>
               <div className="collection-copy">
                 <span>{item.subtitle}</span>
-                <h3>{item.title}</h3>
-                <p>{item.description}</p>
+                <h3 data-lang-token>{copy.collections[index][0]}</h3>
+                <p data-lang-token>{copy.collections[index][1]}</p>
               </div>
             </article>
           ))}
@@ -2107,18 +2115,16 @@ export default function Home() {
         </div>
         <div className="about-copy" data-reveal="right">
           <span className="section-index">04 / ABOUT</span>
-          <h2>你好，我是 Mozelle。</h2>
-          <p>{siteSettings.bio}</p>
-          <p>
-            这个博客不是一份完成的说明书，而是一张持续生长的地图：保存走过的弯路，也标记下一次想抵达的地方。
-          </p>
+          <h2 data-lang-token>{copy.aboutTitle}</h2>
+          <p data-lang-token>{language === "zh" ? siteSettings.bio : copy.bio}</p>
+          <p data-lang-token>{copy.aboutBody}</p>
           <a
             href="#articles"
             className="text-link"
             data-transition-label="ARTICLES"
             onClick={handleSectionNavigation}
           >
-            CONTINUE READING <span aria-hidden="true">↗</span>
+            <span data-lang-token>{copy.continueReading}</span> <span aria-hidden="true">↗</span>
           </a>
         </div>
       </section>
@@ -2133,12 +2139,12 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true"><span /></span>
           <span className="brand-copy"><strong>{siteSettings.siteTitle}</strong><small>{"// DIMENSION"}</small></span>
         </a>
-        <p>{siteSettings.tagline}</p>
+        <p data-lang-token>{language === "zh" ? siteSettings.tagline : copy.tagline}</p>
         <div>
           <span>© 2026 MOZELLE</span>
-          <a href="/admin">管理后台 / CONTROL ↗</a>
+          <a href="/admin"><span data-lang-token>{copy.admin}</span> / CONTROL ↗</a>
           <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-            BACK TO TOP ↑
+            <span data-lang-token>{copy.backToTop}</span> ↑
           </button>
         </div>
       </footer>

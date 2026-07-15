@@ -15,28 +15,29 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.mozelle.top"),
   title: {
-    default: "Mozelle Journal｜电子、超频与二次元",
+    default: "Mozelle Journal｜电子、超频与二次元 / Electronics, Overclocking & ACG",
     template: "%s｜Mozelle Journal",
   },
   description:
-    "电子专业学生的个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。",
+    "电子专业学生的双语个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。 A bilingual journal about electronics, overclocking, games, cosplay, and ACG culture.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
     type: "website",
     locale: "zh_CN",
+    alternateLocale: ["en_US"],
     url: "/",
     siteName: "Mozelle Journal",
-    title: "Mozelle Journal｜电子、超频与二次元",
+    title: "Mozelle Journal｜电子、超频与二次元 / Electronics, Overclocking & ACG",
     description:
-      "电子专业学生的个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。",
+      "电子专业学生的双语个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。 A bilingual journal about electronics, overclocking, games, cosplay, and ACG culture.",
   },
   twitter: {
     card: "summary",
-    title: "Mozelle Journal｜电子、超频与二次元",
+    title: "Mozelle Journal｜电子、超频与二次元 / Electronics, Overclocking & ACG",
     description:
-      "电子专业学生的个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。",
+      "电子专业学生的双语个人博客，记录硬件、超频、游戏、Cosplay 与二次元世界。 A bilingual journal about electronics, overclocking, games, cosplay, and ACG culture.",
   },
   robots: {
     index: true,
@@ -54,7 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" data-theme="day" suppressHydrationWarning>
+    <html lang="zh-CN" data-theme="day" data-language="zh" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
