@@ -3,16 +3,146 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { Language } from "./i18n";
 
-const TOKEN_LIMIT = 36;
+const FULL_TOKEN_LIMIT = 16;
+const FULL_GLYPH_LIMIT = 240;
+const LITE_TOKEN_LIMIT = 10;
+const LITE_GLYPH_LIMIT = 120;
+
+type GlyphPhase = "decompose" | "reassemble";
+
+function isTransparentColor(color: string) {
+  const normalized = color.replaceAll(" ", "").toLowerCase();
+  return normalized === "transparent"
+    || normalized === "#0000"
+    || normalized === "rgba(0,0,0,0)";
+}
+
+function isVisibleToken(node: HTMLElement) {
+  const bounds = node.getBoundingClientRect();
+  return bounds.width > 0
+    && bounds.height > 0
+    && bounds.bottom > 0
+    && bounds.top < window.innerHeight
+    && bounds.right > 0
+    && bounds.left < window.innerWidth;
+}
+
+function createGlyphLayer(
+  nodes: HTMLElement[],
+  phase: GlyphPhase,
+  glyphLimit: number,
+) {
+  const layer = document.createElement("div");
+  layer.className = `language-glyph-layer is-${phase}`;
+  layer.dataset.glyphPhase = phase;
+  layer.setAttribute("aria-hidden", "true");
+  const shell = document.querySelector<HTMLElement>(".site-shell");
+  const shellStyle = shell ? window.getComputedStyle(shell) : null;
+  const fallbackColor = shellStyle?.getPropertyValue("--ink").trim() || "currentColor";
+  let glyphIndex = 0;
+
+  nodes.forEach((node, tokenIndex) => {
+    if (glyphIndex >= glyphLimit || !node.isConnected) return;
+    const tokenBounds = node.getBoundingClientRect();
+    const tokenCenterX = tokenBounds.left + tokenBounds.width / 2;
+    const tokenCenterY = tokenBounds.top + tokenBounds.height / 2;
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let textNode = walker.nextNode();
+
+    while (textNode && glyphIndex < glyphLimit) {
+      const value = textNode.nodeValue ?? "";
+      const parent = textNode.parentElement ?? node;
+      const style = window.getComputedStyle(parent);
+      const textFillColor = style.getPropertyValue("-webkit-text-fill-color");
+      const glyphColor = isTransparentColor(style.color) || isTransparentColor(textFillColor)
+        ? fallbackColor
+        : style.color;
+      let textOffset = 0;
+
+      Array.from(value).forEach((character) => {
+        const startOffset = textOffset;
+        textOffset += character.length;
+        if (glyphIndex >= glyphLimit || !character.trim()) return;
+
+        const range = document.createRange();
+        range.setStart(textNode, startOffset);
+        range.setEnd(textNode, textOffset);
+        const bounds = range.getBoundingClientRect();
+        range.detach();
+        if (
+          bounds.width <= 0
+          || bounds.height <= 0
+          || bounds.bottom <= 0
+          || bounds.top >= window.innerHeight
+          || bounds.right <= 0
+          || bounds.left >= window.innerWidth
+        ) return;
+
+        const centerX = bounds.left + bounds.width / 2;
+        const centerY = bounds.top + bounds.height / 2;
+        const outwardX = centerX - tokenCenterX;
+        const outwardY = centerY - tokenCenterY;
+        const outwardLength = Math.max(1, Math.hypot(outwardX, outwardY));
+        const seed = glyphIndex * 37 + tokenIndex * 61 + (character.codePointAt(0) ?? 0);
+        const angle = ((seed * 137.508) % 360) * (Math.PI / 180);
+        const distance = 19 + (seed % 17);
+        const driftX = outwardX / outwardLength * distance + Math.cos(angle) * 9;
+        const driftY = outwardY / outwardLength * distance + Math.sin(angle) * 9;
+        const splitX = Math.cos(angle + Math.PI / 2) * 6;
+        const splitY = Math.sin(angle + Math.PI / 2) * 6;
+        const spin = -14 + (seed % 29);
+        const delay = (glyphIndex % 11) * 4 + (tokenIndex % 4) * 5;
+
+        const glyph = document.createElement("span");
+        glyph.className = "language-glyph";
+        glyph.dataset.glyph = character;
+        glyph.style.left = `${bounds.left}px`;
+        glyph.style.top = `${bounds.top}px`;
+        glyph.style.width = `${Math.max(1, bounds.width)}px`;
+        glyph.style.height = `${bounds.height}px`;
+        glyph.style.fontFamily = style.fontFamily;
+        glyph.style.fontSize = style.fontSize;
+        glyph.style.fontStyle = style.fontStyle;
+        glyph.style.fontWeight = style.fontWeight;
+        glyph.style.fontStretch = style.fontStretch;
+        glyph.style.fontVariant = style.fontVariant;
+        glyph.style.letterSpacing = style.letterSpacing;
+        glyph.style.lineHeight = style.lineHeight;
+        glyph.style.textTransform = style.textTransform;
+        glyph.style.setProperty("--glyph-color", glyphColor);
+        glyph.style.setProperty("--glyph-delay", `${delay}ms`);
+        glyph.style.setProperty("--glyph-spin", `${spin}deg`);
+        glyph.style.setProperty("--glyph-spin-reverse", `${spin * -1}deg`);
+        glyph.style.setProperty("--glyph-a-x", `${Math.round(driftX + splitX)}px`);
+        glyph.style.setProperty("--glyph-a-y", `${Math.round(driftY + splitY - 3)}px`);
+        glyph.style.setProperty("--glyph-b-x", `${Math.round(driftX - splitX)}px`);
+        glyph.style.setProperty("--glyph-b-y", `${Math.round(driftY - splitY + 3)}px`);
+        glyph.style.setProperty("--glyph-near-x", `${Math.round(driftX * 0.28)}px`);
+        glyph.style.setProperty("--glyph-near-y", `${Math.round(driftY * 0.28)}px`);
+        layer.appendChild(glyph);
+        glyphIndex += 1;
+      });
+      textNode = walker.nextNode();
+    }
+  });
+
+  if (!glyphIndex) return null;
+  layer.dataset.glyphCount = String(glyphIndex);
+  document.body.appendChild(layer);
+  return layer;
+}
 
 export function useLanguageSwitcher() {
   const [language, setLanguage] = useState<Language>("zh");
   const [switching, setSwitching] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState<Language>("en");
   const timers = useRef<number[]>([]);
+  const layers = useRef<HTMLElement[]>([]);
+  const sequence = useRef(0);
 
   useEffect(() => {
     const scheduledTimers = timers.current;
+    const glyphLayers = layers.current;
     const saved = window.localStorage.getItem("mozelle-language");
     const initial: Language = saved === "en" ? "en" : "zh";
     const root = document.documentElement;
@@ -24,52 +154,82 @@ export function useLanguageSwitcher() {
     });
     return () => {
       active = false;
+      sequence.current += 1;
       scheduledTimers.forEach((timer) => window.clearTimeout(timer));
-      document.querySelectorAll<HTMLElement>("[data-lang-animate]").forEach((node) => {
-        delete node.dataset.langAnimate;
-        node.style.removeProperty("--lang-order");
+      glyphLayers.forEach((layer) => layer.remove());
+      document.querySelectorAll<HTMLElement>("[data-lang-phase]").forEach((node) => {
+        delete node.dataset.langPhase;
       });
+      delete root.dataset.languageEffect;
       delete root.dataset.languageSwitching;
     };
   }, []);
 
   const toggleLanguage = (event: MouseEvent<HTMLButtonElement>) => {
     if (switching) return;
+    const switchSequence = sequence.current + 1;
+    sequence.current = switchSequence;
     const next: Language = language === "zh" ? "en" : "zh";
     const root = document.documentElement;
     const rect = event.currentTarget.getBoundingClientRect();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const liteMotion = root.dataset.motion === "lite" || window.innerWidth <= 720;
+    const tokenLimit = liteMotion ? LITE_TOKEN_LIMIT : FULL_TOKEN_LIMIT;
+    const glyphLimit = liteMotion ? LITE_GLYPH_LIMIT : FULL_GLYPH_LIMIT;
     root.style.setProperty("--language-x", `${rect.left + rect.width / 2}px`);
     root.style.setProperty("--language-y", `${rect.top + rect.height / 2}px`);
 
     const visibleTokens = Array.from(
       document.querySelectorAll<HTMLElement>("[data-lang-token]"),
-    ).filter((node) => {
-      const bounds = node.getBoundingClientRect();
-      return bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.top < window.innerHeight && bounds.right > 0 && bounds.left < window.innerWidth;
-    }).slice(0, TOKEN_LIMIT);
+    ).filter(isVisibleToken).slice(0, tokenLimit);
 
-    visibleTokens.forEach((node, index) => {
-      node.dataset.langAnimate = "true";
-      node.style.setProperty("--lang-order", String(index % 7));
+    const outgoingLayer = reducedMotion
+      ? null
+      : createGlyphLayer(visibleTokens, "decompose", glyphLimit);
+    if (outgoingLayer) layers.current.push(outgoingLayer);
+    visibleTokens.forEach((node) => {
+      node.dataset.langPhase = reducedMotion ? "reduced" : "decompose";
     });
     root.dataset.languageSwitching = next;
+    root.dataset.languageEffect = reducedMotion ? "reduced" : "decompose";
     setTargetLanguage(next);
     setSwitching(true);
 
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const swapDelay = reducedMotion ? 0 : 210;
-    const totalDuration = reducedMotion ? 160 : 720;
+    const swapDelay = reducedMotion ? 0 : 270;
+    const totalDuration = reducedMotion ? 140 : 840;
     timers.current.push(window.setTimeout(() => {
       setLanguage(next);
       root.dataset.language = next;
       root.lang = next === "en" ? "en" : "zh-CN";
       window.localStorage.setItem("mozelle-language", next);
     }, swapDelay));
+
+    if (!reducedMotion) {
+      timers.current.push(window.setTimeout(() => {
+        if (sequence.current !== switchSequence) return;
+        const incomingLayer = createGlyphLayer(
+          visibleTokens.filter((node) => node.isConnected),
+          "reassemble",
+          glyphLimit,
+        );
+        if (incomingLayer) layers.current.push(incomingLayer);
+        visibleTokens.forEach((node) => {
+          if (node.isConnected) node.dataset.langPhase = "reassemble";
+        });
+        root.dataset.languageEffect = "reassemble";
+      }, 330));
+      timers.current.push(window.setTimeout(() => outgoingLayer?.remove(), 430));
+    }
+
     timers.current.push(window.setTimeout(() => {
+      if (sequence.current !== switchSequence) return;
+      sequence.current += 1;
       visibleTokens.forEach((node) => {
-        delete node.dataset.langAnimate;
-        node.style.removeProperty("--lang-order");
+        if (node.isConnected) delete node.dataset.langPhase;
       });
+      layers.current.forEach((layer) => layer.remove());
+      layers.current.length = 0;
+      delete root.dataset.languageEffect;
       delete root.dataset.languageSwitching;
       setSwitching(false);
     }, totalDuration));
@@ -89,15 +249,9 @@ export function LanguageReassembly({
     <div className={`language-reassembly ${active ? "is-active" : ""}`} aria-hidden="true">
       <span className="language-reassembly-axis axis-x" />
       <span className="language-reassembly-axis axis-y" />
-      <span className="language-fragment fragment-1">{target === "en" ? "中" : "A"}</span>
-      <span className="language-fragment fragment-2">{target === "en" ? "文" : "Z"}</span>
-      <span className="language-fragment fragment-3">{target === "en" ? "字" : "TYPE"}</span>
-      <span className="language-fragment fragment-4">{target === "en" ? "形" : "LANG"}</span>
-      <span className="language-fragment fragment-5">{target === "en" ? "语" : "GLYPH"}</span>
-      <span className="language-fragment fragment-6">{target === "en" ? "言" : "TEXT"}</span>
-      <span className="language-reassembly-core">
-        <small>LANGUAGE MATRIX / TEXT REBUILD</small>
-        <strong>{target === "en" ? "ENGLISH" : "中文"}</strong>
+      <span className="language-reassembly-readout">
+        <small>GLYPH / DECODE</small>
+        <strong>{target === "en" ? "EN" : "中文"}</strong>
       </span>
     </div>
   );

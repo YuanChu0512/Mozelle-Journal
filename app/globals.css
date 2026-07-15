@@ -893,7 +893,7 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
 
 .language-reassembly {
   position: fixed;
-  z-index: 420;
+  z-index: 438;
   inset: 0;
   overflow: hidden;
   opacity: 0;
@@ -916,17 +916,17 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
 
 .language-reassembly::before {
   background:
-    linear-gradient(90deg, transparent 0 49.9%, rgba(var(--accent-rgb), 0.22) 50%, transparent 50.1%),
-    linear-gradient(transparent 0 49.9%, rgba(var(--accent-rgb), 0.17) 50%, transparent 50.1%);
+    linear-gradient(90deg, transparent 0 49.9%, rgba(var(--accent-rgb), 0.16) 50%, transparent 50.1%),
+    linear-gradient(transparent 0 49.9%, rgba(var(--accent-rgb), 0.12) 50%, transparent 50.1%);
   background-position: var(--language-x) var(--language-y);
-  background-size: 38px 38px;
-  animation: language-grid-pulse 680ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
+  background-size: 42px 42px;
+  animation: language-grid-pulse 820ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
   clip-path: circle(0 at var(--language-x) var(--language-y));
 }
 
 .language-reassembly::after {
-  background: radial-gradient(circle at var(--language-x) var(--language-y), rgba(var(--accent-rgb), 0.2), transparent 34%);
-  animation: language-field-pulse 680ms ease-out both;
+  background: radial-gradient(circle at var(--language-x) var(--language-y), rgba(var(--accent-rgb), 0.17), transparent 24%);
+  animation: language-field-pulse 760ms ease-out both;
 }
 
 .language-reassembly-axis {
@@ -942,7 +942,7 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
   left: 0;
   width: 100%;
   height: 1px;
-  animation: language-axis-x 620ms 40ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
+  animation: language-axis-x 700ms 30ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
 }
 
 .language-reassembly-axis.axis-y {
@@ -951,104 +951,105 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
   width: 1px;
   height: 100%;
   background: linear-gradient(transparent, var(--accent), transparent);
-  animation: language-axis-y 620ms 40ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
+  animation: language-axis-y 700ms 30ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
 }
 
-.language-reassembly-core {
+.language-reassembly-readout {
   position: absolute;
-  z-index: 4;
-  top: var(--language-y);
-  left: var(--language-x);
-  display: grid;
-  width: 214px;
-  height: 88px;
-  place-content: center;
-  border: 1px solid rgba(var(--accent-rgb), 0.48);
-  color: var(--ink);
-  background: color-mix(in srgb, var(--surface-strong), transparent 7%);
-  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.08), 0 0 36px rgba(var(--accent-rgb), 0.12);
-  text-align: center;
-  opacity: 0;
-  transform: translate(-50%, -50%) scaleX(0.08) scaleY(0.6);
-  animation: language-core-rebuild 660ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
-}
-
-.language-reassembly-core::before,
-.language-reassembly-core::after {
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  border-color: var(--accent);
-  content: "";
-}
-
-.language-reassembly-core::before {
-  top: -5px;
-  left: -5px;
-  border-top: 1px solid;
-  border-left: 1px solid;
-}
-
-.language-reassembly-core::after {
-  right: -5px;
-  bottom: -5px;
-  border-right: 1px solid;
-  border-bottom: 1px solid;
-}
-
-.language-reassembly-core small {
-  color: var(--faint);
+  z-index: 3;
+  top: calc(var(--language-y) + 27px);
+  left: clamp(72px, var(--language-x), calc(100vw - 72px));
+  display: flex;
+  width: max-content;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-left: 1px solid var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--surface-strong), transparent 18%);
   font-family: var(--font-geist-mono), monospace;
+  opacity: 0;
+  transform: translate(-50%, -4px);
+  animation: language-readout 740ms 40ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
+}
+
+.language-reassembly-readout small {
+  color: var(--faint);
   font-size: 6px;
   letter-spacing: 0.17em;
 }
 
-.language-reassembly-core strong {
-  margin-top: 7px;
-  color: var(--accent);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 17px;
-  letter-spacing: 0.22em;
+.language-reassembly-readout strong {
+  font-size: 8px;
+  letter-spacing: 0.14em;
 }
 
-.language-fragment {
+[data-lang-token][data-lang-phase] {
+  opacity: 0 !important;
+}
+
+.language-glyph-layer {
+  position: fixed;
+  z-index: 436;
+  inset: 0;
+  contain: strict;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.language-glyph {
+  position: fixed;
+  display: block;
+  color: transparent;
+  transform-origin: 50% 52%;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+.language-glyph::before,
+.language-glyph::after {
   position: absolute;
-  z-index: 3;
-  top: var(--language-y);
-  left: var(--language-x);
-  color: var(--accent);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  opacity: 0;
-  animation: language-fragment-assemble 620ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
+  inset: 0;
+  color: var(--glyph-color);
+  content: attr(data-glyph);
+  font: inherit;
+  font-kerning: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-transform: inherit;
+  transform-origin: 50% 52%;
+  will-change: transform, opacity;
 }
 
-.language-fragment.fragment-1 { --fragment-x: -118px; --fragment-y: -72px; animation-delay: 0ms; }
-.language-fragment.fragment-2 { --fragment-x: 112px; --fragment-y: -58px; animation-delay: 26ms; }
-.language-fragment.fragment-3 { --fragment-x: -142px; --fragment-y: 18px; animation-delay: 48ms; }
-.language-fragment.fragment-4 { --fragment-x: 136px; --fragment-y: 22px; animation-delay: 68ms; }
-.language-fragment.fragment-5 { --fragment-x: -82px; --fragment-y: 76px; animation-delay: 84ms; }
-.language-fragment.fragment-6 { --fragment-x: 86px; --fragment-y: 74px; animation-delay: 104ms; }
-
-[data-lang-token][data-lang-animate="true"] {
-  transform-origin: 50% 55%;
-  animation: language-token-rebuild 610ms calc(var(--lang-order) * 13ms) cubic-bezier(0.16, 0.82, 0.18, 1) both;
+.language-glyph::before {
+  clip-path: inset(0 0 49% 0);
 }
 
-@keyframes language-token-rebuild {
-  0% { opacity: 1; transform: translate3d(0, 0, 0); letter-spacing: inherit; }
-  32% { opacity: 0; transform: translate3d(0, -5px, 0) skewX(-7deg); }
-  54% { opacity: 0; transform: translate3d(0, 6px, 0) skewX(5deg); }
-  100% { opacity: 1; transform: translate3d(0, 0, 0); letter-spacing: inherit; }
+.language-glyph::after {
+  clip-path: inset(49% 0 0 0);
+}
+
+.language-glyph-layer.is-decompose .language-glyph::before {
+  animation: glyph-top-decompose 360ms var(--glyph-delay) cubic-bezier(0.35, 0.02, 0.7, 0.25) both;
+}
+
+.language-glyph-layer.is-decompose .language-glyph::after {
+  animation: glyph-bottom-decompose 360ms var(--glyph-delay) cubic-bezier(0.35, 0.02, 0.7, 0.25) both;
+}
+
+.language-glyph-layer.is-reassemble .language-glyph::before {
+  animation: glyph-top-reassemble 430ms var(--glyph-delay) cubic-bezier(0.16, 0.82, 0.18, 1) both;
+}
+
+.language-glyph-layer.is-reassemble .language-glyph::after {
+  animation: glyph-bottom-reassemble 430ms var(--glyph-delay) cubic-bezier(0.16, 0.82, 0.18, 1) both;
 }
 
 @keyframes language-grid-pulse {
   0% { opacity: 0; clip-path: circle(0 at var(--language-x) var(--language-y)); }
-  32% { opacity: 0.7; }
-  75% { opacity: 0.18; clip-path: circle(68vmax at var(--language-x) var(--language-y)); }
-  100% { opacity: 0; clip-path: circle(78vmax at var(--language-x) var(--language-y)); }
+  28% { opacity: 0.5; }
+  70% { opacity: 0.12; clip-path: circle(66vmax at var(--language-x) var(--language-y)); }
+  100% { opacity: 0; clip-path: circle(76vmax at var(--language-x) var(--language-y)); }
 }
 
 @keyframes language-field-pulse {
@@ -1069,19 +1070,33 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
   100% { opacity: 0; transform: translateY(55%) scaleY(0.25); }
 }
 
-@keyframes language-core-rebuild {
-  0% { opacity: 0; transform: translate(-50%, -50%) scaleX(0.08) scaleY(0.58); }
-  26% { opacity: 1; transform: translate(-50%, -50%) scaleX(1.04) scaleY(0.86); }
-  48% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  78% { opacity: 0.86; transform: translate(-50%, -50%) scale(0.98); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scaleX(0.16) scaleY(0.76); }
+@keyframes language-readout {
+  0%, 100% { opacity: 0; transform: translate(-50%, -4px); }
+  24%, 70% { opacity: 0.86; transform: translate(-50%, 0); }
 }
 
-@keyframes language-fragment-assemble {
-  0% { opacity: 0; transform: translate(calc(-50% + var(--fragment-x)), calc(-50% + var(--fragment-y))) rotate(-9deg) scale(1.35); }
-  30% { opacity: 0.86; }
-  62% { opacity: 0.68; transform: translate(calc(-50% + var(--fragment-x)), calc(-50% + var(--fragment-y))) rotate(0) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+@keyframes glyph-top-decompose {
+  0% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+  34% { opacity: 0.94; transform: translate3d(var(--glyph-near-x), var(--glyph-near-y), 0) rotate(-2deg) scale(1.02); }
+  100% { opacity: 0; transform: translate3d(var(--glyph-a-x), var(--glyph-a-y), 0) rotate(var(--glyph-spin)) scale(0.42); }
+}
+
+@keyframes glyph-bottom-decompose {
+  0% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+  34% { opacity: 0.9; transform: translate3d(var(--glyph-near-x), var(--glyph-near-y), 0) rotate(2deg) scale(0.98); }
+  100% { opacity: 0; transform: translate3d(var(--glyph-b-x), var(--glyph-b-y), 0) rotate(var(--glyph-spin-reverse)) scale(0.38); }
+}
+
+@keyframes glyph-top-reassemble {
+  0% { opacity: 0; transform: translate3d(var(--glyph-a-x), var(--glyph-a-y), 0) rotate(var(--glyph-spin)) scale(0.38); }
+  45% { opacity: 0.78; transform: translate3d(var(--glyph-near-x), var(--glyph-near-y), 0) rotate(-2deg) scale(0.88); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+}
+
+@keyframes glyph-bottom-reassemble {
+  0% { opacity: 0; transform: translate3d(var(--glyph-b-x), var(--glyph-b-y), 0) rotate(var(--glyph-spin-reverse)) scale(0.34); }
+  45% { opacity: 0.72; transform: translate3d(var(--glyph-near-x), var(--glyph-near-y), 0) rotate(2deg) scale(0.86); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
 }
 
 .toggle-option {
@@ -5312,14 +5327,13 @@ html[data-motion="lite"] .dimension-event-layer {
     display: none;
   }
 
-  .language-reassembly-axis,
-  .language-fragment,
-  .language-reassembly::before {
+  .language-reassembly,
+  .language-glyph-layer {
     display: none;
   }
 
-  .language-reassembly-core {
-    animation-duration: 160ms !important;
+  [data-lang-token][data-lang-phase] {
+    opacity: 1 !important;
   }
 
   .section-jump-transition {
