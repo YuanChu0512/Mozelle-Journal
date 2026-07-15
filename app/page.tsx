@@ -16,8 +16,11 @@ import {
 import AmbientEffects from "./ambient-effects";
 import { categoryLabels, homeCopy, localizeArticle } from "./i18n";
 import { LanguageReassembly, useLanguageSwitcher } from "./language-switcher";
-
-type Theme = "day" | "night";
+import {
+  ThemeTransition,
+  useThemeTransition,
+  type Theme,
+} from "./theme-transition";
 
 const navItems = [
   { href: "#top" },
@@ -107,10 +110,18 @@ export default function Home() {
   const [articles, setArticles] = useState<Article[]>(fallbackArticles);
   const [siteSettings, setSiteSettings] = useState<PublicSettings>(fallbackSettings);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [transitioning, setTransitioning] = useState(false);
-  const [transitionTarget, setTransitionTarget] = useState<Theme>("night");
   const [nightVisualReady, setNightVisualReady] = useState(false);
   const [nightMotionPhase, setNightMotionPhase] = useState(0);
+  const { transitioning, transitionTarget, toggleTheme } = useThemeTransition(
+    theme,
+    setTheme,
+    {
+      onStart: (nextTheme) => {
+        if (nextTheme === "night") setNightVisualReady(true);
+        setNightMotionPhase(0);
+      },
+    },
+  );
   const {
     language,
     switching: languageSwitching,
@@ -893,6 +904,7 @@ export default function Home() {
       depth: number;
       accent: boolean;
       index: number;
+      opacity: number;
     };
 
     const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
@@ -1113,17 +1125,6 @@ export default function Home() {
       };
     };
 
-    const interpolateOnSphere = (
-      from: Pick<Vector3, "x" | "y" | "z">,
-      to: Pick<Vector3, "x" | "y" | "z">,
-      progress: number,
-    ) =>
-      normalize({
-        x: from.x + (to.x - from.x) * progress,
-        y: from.y + (to.y - from.y) * progress,
-        z: from.z + (to.z - from.z) * progress,
-      });
-
     const convexHull = (points: ProjectedPoint[]) => {
       if (points.length <= 3) return [...points];
       const sorted = [...points].sort((first, second) =>
@@ -1169,7 +1170,7 @@ export default function Home() {
         : 0.075 + depthCurve * (edge.accent ? 0.58 : 0.4);
       const focusBoost =
         0.9 + edge.depth * 0.12 + focusPulse * edge.depth * 0.05;
-      const alpha = baseAlpha * focusBoost;
+      const alpha = baseAlpha * focusBoost * edge.opacity;
       context.beginPath();
       context.moveTo(edge.start.x, edge.start.y);
       context.lineTo(edge.end.x, edge.end.y);
@@ -1198,6 +1199,9 @@ export default function Home() {
       }
       const morph =
         0.5 - Math.cos(Math.max(0, Math.min(1, topologyProgress)) * Math.PI) * 0.5;
+      const chordBlendProgress = clamp((morph - 0.2) / 0.6);
+      const chordBlend =
+        chordBlendProgress * chordBlendProgress * (3 - 2 * chordBlendProgress);
 
       const yaw = now * 0.00022;
       const pitch = 0.2 + Math.sin(now * 0.00015) * 0.18;
@@ -1246,30 +1250,26 @@ export default function Home() {
         context.fill();
       });
 
-      const dynamicChords = previousChords.map((fromEdge, index) => {
-        const toEdge = nextChords[index % nextChords.length];
-        const startOnSphere = interpolateOnSphere(
-          nodes[fromEdge.a],
-          nodes[toEdge.a],
-          morph,
-        );
-        const endOnSphere = interpolateOnSphere(
-          nodes[fromEdge.b],
-          nodes[toEdge.b],
-          morph,
-        );
-        const startRotated = rotatePoint(startOnSphere, yaw, pitch, roll);
-        const endRotated = rotatePoint(endOnSphere, yaw, pitch, roll);
-        const start = projectPoint(startRotated, fromEdge.a);
-        const end = projectPoint(endRotated, fromEdge.b);
-        return {
-          start,
-          end,
-          depth: clamp((startRotated.z + endRotated.z + 2) * 0.25),
-          accent: fromEdge.accent || toEdge.accent,
-          index,
-        };
-      });
+      const projectChordSet = (
+        chords: Edge[],
+        opacity: number,
+        indexOffset: number,
+      ): ProjectedEdge[] => {
+        if (opacity <= 0.002) return [];
+        return chords.map((edge, index) => ({
+          start: projectedNodes[edge.a],
+          end: projectedNodes[edge.b],
+          depth:
+            (projectedNodes[edge.a].depth + projectedNodes[edge.b].depth) * 0.5,
+          accent: edge.accent,
+          index: indexOffset + index,
+          opacity,
+        }));
+      };
+      const dynamicChords = [
+        ...projectChordSet(previousChords, 1 - chordBlend, 0),
+        ...projectChordSet(nextChords, chordBlend, previousChords.length),
+      ];
       dynamicChords.sort((first, second) => first.depth - second.depth);
 
       const projectedSurface = surfaceEdges
@@ -1280,12 +1280,73 @@ export default function Home() {
             (projectedNodes[edge.a].depth + projectedNodes[edge.b].depth) * 0.5,
           accent: edge.accent,
           index,
+          opacity: 1,
         }))
         .sort((first, second) => first.depth - second.depth);
 
       context.globalCompositeOperation = "source-over";
       dynamicChords.forEach((edge) => drawEdge(edge, "chord"));
       projectedSurface.forEach((edge) => drawEdge(edge, "surface"));
+
+      if (!prefersReducedMotion) {
+        const flowSpeed = lowPower ? 0.00008 : 0.00017;
+        const flowLayers = lowPower
+          ? [
+              { length: 1, alpha: 0.2, width: 1.18 },
+              { length: 0.58, alpha: 0.42, width: 1.06 },
+              { length: 0.22, alpha: 0.82, width: 0.94 },
+            ]
+          : [
+              { length: 1, alpha: 0.16, width: 1.28 },
+              { length: 0.78, alpha: 0.23, width: 1.19 },
+              { length: 0.56, alpha: 0.34, width: 1.1 },
+              { length: 0.34, alpha: 0.5, width: 1.01 },
+              { length: 0.15, alpha: 0.84, width: 0.92 },
+            ];
+        const drawFlowGroup = (front: boolean, accent: boolean) => {
+          const baseWidth = front
+            ? accent ? 2.15 : 1.42
+            : accent ? 1 : 0.72;
+          const baseAlpha = accent
+            ? front ? 0.68 : 0.2
+            : front ? 0.48 : 0.13;
+          const color = accent ? "226, 255, 105" : "140, 255, 178";
+          flowLayers.forEach((layer) => {
+            context.beginPath();
+            projectedSurface.forEach((edge) => {
+              if ((edge.depth >= 0.5) !== front || edge.accent !== accent) return;
+              const travel = (now * flowSpeed + edge.index * 0.137) % 1;
+              const flowLength = (lowPower
+                ? 0.2 + edge.depth * 0.12
+                : 0.27 + edge.depth * 0.18) * layer.length;
+              const reversed = edge.index % 2 === 1;
+              const head = reversed ? 1 - travel : travel;
+              const tail = clamp(
+                head + (reversed ? flowLength : -flowLength),
+                0,
+                1,
+              );
+              const startX = edge.start.x + (edge.end.x - edge.start.x) * tail;
+              const startY = edge.start.y + (edge.end.y - edge.start.y) * tail;
+              const endX = edge.start.x + (edge.end.x - edge.start.x) * head;
+              const endY = edge.start.y + (edge.end.y - edge.start.y) * head;
+              context.moveTo(startX, startY);
+              context.lineTo(endX, endY);
+            });
+            context.lineCap = "round";
+            context.lineWidth = baseWidth * layer.width;
+            context.strokeStyle = `rgba(${color}, ${baseAlpha * layer.alpha})`;
+            context.stroke();
+          });
+        };
+        context.save();
+        context.globalCompositeOperation = lowPower ? "source-over" : "screen";
+        drawFlowGroup(false, false);
+        drawFlowGroup(false, true);
+        drawFlowGroup(true, false);
+        drawFlowGroup(true, true);
+        context.restore();
+      }
 
       context.beginPath();
       if (hull.length > 1) {
@@ -1319,7 +1380,7 @@ export default function Home() {
           const y = edge.start.y + (edge.end.y - edge.start.y) * travel;
           context.beginPath();
           context.arc(x, y, 0.9 + edge.depth * 1.15, 0, Math.PI * 2);
-          context.fillStyle = `rgba(224, 255, 117, ${0.25 + edge.depth * 0.62})`;
+          context.fillStyle = `rgba(224, 255, 117, ${(0.25 + edge.depth * 0.62) * edge.opacity})`;
           context.fill();
         });
       }
@@ -1509,46 +1570,6 @@ export default function Home() {
     return () => cleanups.forEach((cleanup) => cleanup());
   }, [filter, articles.length]);
 
-  const applyTheme = (nextTheme: Theme) => {
-    document.documentElement.dataset.theme = nextTheme;
-    window.localStorage.setItem("mozelle-theme", nextTheme);
-    setTheme(nextTheme);
-  };
-
-  const toggleTheme = (event: MouseEvent<HTMLButtonElement>) => {
-    if (transitioning) return;
-
-    const nextTheme: Theme = theme === "day" ? "night" : "day";
-    if (nextTheme === "night") setNightVisualReady(true);
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-    const liteMotion =
-      reducedMotion ||
-      document.documentElement.dataset.motion === "lite" ||
-      window.matchMedia("(max-width: 940px), (pointer: coarse)").matches;
-
-    document.documentElement.style.setProperty("--switch-x", `${x}px`);
-    document.documentElement.style.setProperty("--switch-y", `${y}px`);
-    document.documentElement.dataset.switching = nextTheme;
-    setTransitionTarget(nextTheme);
-    setNightMotionPhase(0);
-    setTransitioning(true);
-
-    const finishTransition = () => {
-      setTransitioning(false);
-      delete document.documentElement.dataset.switching;
-    };
-
-    const switchDelay = reducedMotion ? 0 : liteMotion ? 90 : 140;
-    const totalDuration = reducedMotion ? 140 : liteMotion ? 360 : 820;
-    window.setTimeout(() => applyTheme(nextTheme), switchDelay);
-    window.setTimeout(finishTransition, totalDuration);
-  };
-
   const handleSectionNavigation = (event: MouseEvent<HTMLAnchorElement>) => {
     const href = event.currentTarget.getAttribute("href");
     if (!href?.startsWith("#")) return;
@@ -1628,22 +1649,7 @@ export default function Home() {
         </div>
       )}
 
-      <div
-        className={`theme-transition ${transitioning ? "is-active" : ""} to-${transitionTarget}`}
-        aria-hidden="true"
-      >
-        <span className="transition-flash" />
-        <span className="transition-ring ring-one" />
-        <span className="transition-ring ring-two" />
-        <span className="transition-sweep" />
-        <span className="transition-core">{transitionTarget === "night" ? "M3" : "EI"}</span>
-        <span className="transition-shard shard-1" />
-        <span className="transition-shard shard-2" />
-        <span className="transition-shard shard-3" />
-        <span className="transition-shard shard-4" />
-        <span className="transition-shard shard-5" />
-        <span className="transition-shard shard-6" />
-      </div>
+      <ThemeTransition active={transitioning} target={transitionTarget} />
 
       <header className="site-header">
         <a
@@ -1715,7 +1721,7 @@ export default function Home() {
             onClick={toggleTheme}
             onPointerEnter={() => setNightVisualReady(true)}
             onFocus={() => setNightVisualReady(true)}
-            disabled={transitioning}
+            disabled={transitioning || languageSwitching}
             aria-label={theme === "day" ? copy.themeDayLabel : copy.themeNightLabel}
             aria-pressed={theme === "night"}
           >

@@ -10,8 +10,11 @@ import {
 import AmbientEffects from "../../ambient-effects";
 import { articleCopy, categoryLabels, localizeArticle } from "../../i18n";
 import { LanguageReassembly, useLanguageSwitcher } from "../../language-switcher";
-
-type Theme = "day" | "night";
+import {
+  ThemeTransition,
+  useThemeTransition,
+  type Theme,
+} from "../../theme-transition";
 
 export default function ArticleReader({ articleId }: { articleId: string }) {
   const fallbackArticle = fallbackArticles.find((item) => item.id === articleId) ?? null;
@@ -20,6 +23,10 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
     fallbackArticle ? "ready" : "loading",
   );
   const [theme, setTheme] = useState<Theme>("day");
+  const { transitioning, transitionTarget, toggleTheme } = useThemeTransition(
+    theme,
+    setTheme,
+  );
   const {
     language,
     switching: languageSwitching,
@@ -71,20 +78,14 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
     return () => controller.abort();
   }, [articleId, fallbackArticle]);
 
-  const toggleTheme = () => {
-    const nextTheme: Theme = theme === "day" ? "night" : "day";
-    document.documentElement.dataset.theme = nextTheme;
-    window.localStorage.setItem("mozelle-theme", nextTheme);
-    setTheme(nextTheme);
-  };
-
   return (
     <main
-      className={`site-shell article-page-shell theme-${theme} ${languageSwitching ? "is-language-switching" : ""}`}
+      className={`site-shell article-page-shell theme-${theme} ${transitioning ? "is-switching" : ""} ${languageSwitching ? "is-language-switching" : ""}`}
       data-language={language}
     >
       <AmbientEffects />
       <LanguageReassembly active={languageSwitching} target={targetLanguage} />
+      <ThemeTransition active={transitioning} target={transitionTarget} />
       <span className="article-reading-progress" aria-hidden="true" />
       <header className="article-site-header">
         <a className="brand" href="/" aria-label={copy.homeLabel}>
@@ -111,7 +112,12 @@ export default function ArticleReader({ articleId }: { articleId: string }) {
           >
             {language === "zh" ? "EN" : "中"}
           </button>
-          <button type="button" onClick={toggleTheme} aria-label={copy.themeLabel}>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            disabled={transitioning || languageSwitching}
+            aria-label={copy.themeLabel}
+          >
             {theme === "day" ? "DAY" : "NIGHT"}
           </button>
         </div>
