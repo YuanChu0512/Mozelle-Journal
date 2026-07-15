@@ -921,7 +921,6 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
   background-position: var(--language-x) var(--language-y);
   background-size: 42px 42px;
   animation: language-grid-pulse 820ms cubic-bezier(0.16, 0.82, 0.18, 1) both;
-  clip-path: circle(0 at var(--language-x) var(--language-y));
 }
 
 .language-reassembly::after {
@@ -1002,7 +1001,6 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
   display: block;
   color: transparent;
   transform-origin: 50% 52%;
-  will-change: transform, opacity;
   pointer-events: none;
 }
 
@@ -1030,11 +1028,11 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
 }
 
 .language-glyph-layer.is-decompose .language-glyph::before {
-  animation: glyph-top-decompose 360ms var(--glyph-delay) cubic-bezier(0.35, 0.02, 0.7, 0.25) both;
+  animation: glyph-top-decompose 300ms var(--glyph-delay) cubic-bezier(0.35, 0.02, 0.7, 0.25) both;
 }
 
 .language-glyph-layer.is-decompose .language-glyph::after {
-  animation: glyph-bottom-decompose 360ms var(--glyph-delay) cubic-bezier(0.35, 0.02, 0.7, 0.25) both;
+  animation: glyph-bottom-decompose 300ms var(--glyph-delay) cubic-bezier(0.35, 0.02, 0.7, 0.25) both;
 }
 
 .language-glyph-layer.is-reassemble .language-glyph::before {
@@ -1046,10 +1044,10 @@ html[data-custom-cursor="true"] :where(input, textarea, select, [contenteditable
 }
 
 @keyframes language-grid-pulse {
-  0% { opacity: 0; clip-path: circle(0 at var(--language-x) var(--language-y)); }
+  0% { opacity: 0; }
   28% { opacity: 0.5; }
-  70% { opacity: 0.12; clip-path: circle(66vmax at var(--language-x) var(--language-y)); }
-  100% { opacity: 0; clip-path: circle(76vmax at var(--language-x) var(--language-y)); }
+  70% { opacity: 0.12; }
+  100% { opacity: 0; }
 }
 
 @keyframes language-field-pulse {

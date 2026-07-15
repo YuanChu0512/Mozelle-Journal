@@ -4,11 +4,50 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { Language } from "./i18n";
 
 const FULL_TOKEN_LIMIT = 16;
-const FULL_GLYPH_LIMIT = 240;
+const FULL_GLYPH_LIMIT = 72;
 const LITE_TOKEN_LIMIT = 10;
-const LITE_GLYPH_LIMIT = 120;
+const LITE_GLYPH_LIMIT = 40;
 
 type GlyphPhase = "decompose" | "reassemble";
+
+type GlyphCandidate = {
+  character: string;
+  endOffset: number;
+  startOffset: number;
+  textNode: Text;
+};
+
+function sampleGlyphs(node: HTMLElement, limit: number) {
+  const candidates: GlyphCandidate[] = [];
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  let textNode = walker.nextNode() as Text | null;
+
+  while (textNode) {
+    const candidateNode = textNode;
+    const value = textNode.nodeValue ?? "";
+    let textOffset = 0;
+    Array.from(value).forEach((character) => {
+      const startOffset = textOffset;
+      textOffset += character.length;
+      if (!character.trim()) return;
+      candidates.push({
+        character,
+        endOffset: textOffset,
+        startOffset,
+        textNode: candidateNode,
+      });
+    });
+    textNode = walker.nextNode() as Text | null;
+  }
+
+  if (candidates.length <= limit) return candidates;
+  return Array.from({ length: limit }, (_, index) => (
+    candidates[Math.min(
+      candidates.length - 1,
+      Math.floor((index + 0.5) * candidates.length / limit),
+    )]
+  ));
+}
 
 function isTransparentColor(color: string) {
   const normalized = color.replaceAll(" ", "").toLowerCase();
@@ -39,91 +78,88 @@ function createGlyphLayer(
   const shell = document.querySelector<HTMLElement>(".site-shell");
   const shellStyle = shell ? window.getComputedStyle(shell) : null;
   const fallbackColor = shellStyle?.getPropertyValue("--ink").trim() || "currentColor";
+  const styleCache = new WeakMap<HTMLElement, CSSStyleDeclaration>();
   let glyphIndex = 0;
+  const perTokenLimit = Math.max(2, Math.ceil(glyphLimit / Math.max(1, nodes.length)));
 
   nodes.forEach((node, tokenIndex) => {
     if (glyphIndex >= glyphLimit || !node.isConnected) return;
     const tokenBounds = node.getBoundingClientRect();
     const tokenCenterX = tokenBounds.left + tokenBounds.width / 2;
     const tokenCenterY = tokenBounds.top + tokenBounds.height / 2;
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    let textNode = walker.nextNode();
+    const sampledGlyphs = sampleGlyphs(node, perTokenLimit);
 
-    while (textNode && glyphIndex < glyphLimit) {
-      const value = textNode.nodeValue ?? "";
+    sampledGlyphs.forEach(({ character, endOffset, startOffset, textNode }) => {
+      if (glyphIndex >= glyphLimit) return;
       const parent = textNode.parentElement ?? node;
-      const style = window.getComputedStyle(parent);
+      let style = styleCache.get(parent);
+      if (!style) {
+        style = window.getComputedStyle(parent);
+        styleCache.set(parent, style);
+      }
       const textFillColor = style.getPropertyValue("-webkit-text-fill-color");
       const glyphColor = isTransparentColor(style.color) || isTransparentColor(textFillColor)
         ? fallbackColor
         : style.color;
-      let textOffset = 0;
 
-      Array.from(value).forEach((character) => {
-        const startOffset = textOffset;
-        textOffset += character.length;
-        if (glyphIndex >= glyphLimit || !character.trim()) return;
+      const range = document.createRange();
+      range.setStart(textNode, startOffset);
+      range.setEnd(textNode, endOffset);
+      const bounds = range.getBoundingClientRect();
+      range.detach();
+      if (
+        bounds.width <= 0
+        || bounds.height <= 0
+        || bounds.bottom <= 0
+        || bounds.top >= window.innerHeight
+        || bounds.right <= 0
+        || bounds.left >= window.innerWidth
+      ) return;
 
-        const range = document.createRange();
-        range.setStart(textNode, startOffset);
-        range.setEnd(textNode, textOffset);
-        const bounds = range.getBoundingClientRect();
-        range.detach();
-        if (
-          bounds.width <= 0
-          || bounds.height <= 0
-          || bounds.bottom <= 0
-          || bounds.top >= window.innerHeight
-          || bounds.right <= 0
-          || bounds.left >= window.innerWidth
-        ) return;
+      const centerX = bounds.left + bounds.width / 2;
+      const centerY = bounds.top + bounds.height / 2;
+      const outwardX = centerX - tokenCenterX;
+      const outwardY = centerY - tokenCenterY;
+      const outwardLength = Math.max(1, Math.hypot(outwardX, outwardY));
+      const seed = glyphIndex * 37 + tokenIndex * 61 + (character.codePointAt(0) ?? 0);
+      const angle = ((seed * 137.508) % 360) * (Math.PI / 180);
+      const distance = 19 + (seed % 17);
+      const driftX = outwardX / outwardLength * distance + Math.cos(angle) * 9;
+      const driftY = outwardY / outwardLength * distance + Math.sin(angle) * 9;
+      const splitX = Math.cos(angle + Math.PI / 2) * 6;
+      const splitY = Math.sin(angle + Math.PI / 2) * 6;
+      const spin = -14 + (seed % 29);
+      const delay = (glyphIndex % 9) * 3 + (tokenIndex % 4) * 4;
 
-        const centerX = bounds.left + bounds.width / 2;
-        const centerY = bounds.top + bounds.height / 2;
-        const outwardX = centerX - tokenCenterX;
-        const outwardY = centerY - tokenCenterY;
-        const outwardLength = Math.max(1, Math.hypot(outwardX, outwardY));
-        const seed = glyphIndex * 37 + tokenIndex * 61 + (character.codePointAt(0) ?? 0);
-        const angle = ((seed * 137.508) % 360) * (Math.PI / 180);
-        const distance = 19 + (seed % 17);
-        const driftX = outwardX / outwardLength * distance + Math.cos(angle) * 9;
-        const driftY = outwardY / outwardLength * distance + Math.sin(angle) * 9;
-        const splitX = Math.cos(angle + Math.PI / 2) * 6;
-        const splitY = Math.sin(angle + Math.PI / 2) * 6;
-        const spin = -14 + (seed % 29);
-        const delay = (glyphIndex % 11) * 4 + (tokenIndex % 4) * 5;
-
-        const glyph = document.createElement("span");
-        glyph.className = "language-glyph";
-        glyph.dataset.glyph = character;
-        glyph.style.left = `${bounds.left}px`;
-        glyph.style.top = `${bounds.top}px`;
-        glyph.style.width = `${Math.max(1, bounds.width)}px`;
-        glyph.style.height = `${bounds.height}px`;
-        glyph.style.fontFamily = style.fontFamily;
-        glyph.style.fontSize = style.fontSize;
-        glyph.style.fontStyle = style.fontStyle;
-        glyph.style.fontWeight = style.fontWeight;
-        glyph.style.fontStretch = style.fontStretch;
-        glyph.style.fontVariant = style.fontVariant;
-        glyph.style.letterSpacing = style.letterSpacing;
-        glyph.style.lineHeight = style.lineHeight;
-        glyph.style.textTransform = style.textTransform;
-        glyph.style.setProperty("--glyph-color", glyphColor);
-        glyph.style.setProperty("--glyph-delay", `${delay}ms`);
-        glyph.style.setProperty("--glyph-spin", `${spin}deg`);
-        glyph.style.setProperty("--glyph-spin-reverse", `${spin * -1}deg`);
-        glyph.style.setProperty("--glyph-a-x", `${Math.round(driftX + splitX)}px`);
-        glyph.style.setProperty("--glyph-a-y", `${Math.round(driftY + splitY - 3)}px`);
-        glyph.style.setProperty("--glyph-b-x", `${Math.round(driftX - splitX)}px`);
-        glyph.style.setProperty("--glyph-b-y", `${Math.round(driftY - splitY + 3)}px`);
-        glyph.style.setProperty("--glyph-near-x", `${Math.round(driftX * 0.28)}px`);
-        glyph.style.setProperty("--glyph-near-y", `${Math.round(driftY * 0.28)}px`);
-        layer.appendChild(glyph);
-        glyphIndex += 1;
-      });
-      textNode = walker.nextNode();
-    }
+      const glyph = document.createElement("span");
+      glyph.className = "language-glyph";
+      glyph.dataset.glyph = character;
+      glyph.style.left = `${bounds.left}px`;
+      glyph.style.top = `${bounds.top}px`;
+      glyph.style.width = `${Math.max(1, bounds.width)}px`;
+      glyph.style.height = `${bounds.height}px`;
+      glyph.style.fontFamily = style.fontFamily;
+      glyph.style.fontSize = style.fontSize;
+      glyph.style.fontStyle = style.fontStyle;
+      glyph.style.fontWeight = style.fontWeight;
+      glyph.style.fontStretch = style.fontStretch;
+      glyph.style.fontVariant = style.fontVariant;
+      glyph.style.letterSpacing = style.letterSpacing;
+      glyph.style.lineHeight = style.lineHeight;
+      glyph.style.textTransform = style.textTransform;
+      glyph.style.setProperty("--glyph-color", glyphColor);
+      glyph.style.setProperty("--glyph-delay", `${delay}ms`);
+      glyph.style.setProperty("--glyph-spin", `${spin}deg`);
+      glyph.style.setProperty("--glyph-spin-reverse", `${spin * -1}deg`);
+      glyph.style.setProperty("--glyph-a-x", `${Math.round(driftX + splitX)}px`);
+      glyph.style.setProperty("--glyph-a-y", `${Math.round(driftY + splitY - 3)}px`);
+      glyph.style.setProperty("--glyph-b-x", `${Math.round(driftX - splitX)}px`);
+      glyph.style.setProperty("--glyph-b-y", `${Math.round(driftY - splitY + 3)}px`);
+      glyph.style.setProperty("--glyph-near-x", `${Math.round(driftX * 0.28)}px`);
+      glyph.style.setProperty("--glyph-near-y", `${Math.round(driftY * 0.28)}px`);
+      layer.appendChild(glyph);
+      glyphIndex += 1;
+    });
   });
 
   if (!glyphIndex) return null;
@@ -205,6 +241,7 @@ export function useLanguageSwitcher() {
     }, swapDelay));
 
     if (!reducedMotion) {
+      timers.current.push(window.setTimeout(() => outgoingLayer?.remove(), 338));
       timers.current.push(window.setTimeout(() => {
         if (sequence.current !== switchSequence) return;
         const incomingLayer = createGlyphLayer(
@@ -217,8 +254,7 @@ export function useLanguageSwitcher() {
           if (node.isConnected) node.dataset.langPhase = "reassemble";
         });
         root.dataset.languageEffect = "reassemble";
-      }, 330));
-      timers.current.push(window.setTimeout(() => outgoingLayer?.remove(), 430));
+      }, 350));
     }
 
     timers.current.push(window.setTimeout(() => {
