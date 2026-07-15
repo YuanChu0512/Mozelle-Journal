@@ -13,18 +13,4 @@
 - PostgreSQL 数据库、文章修订记录与持久化图片目录
 - Docker Compose + Caddy，一条命令在 VPS 上启动并自动申请 HTTPS 证书
 
-## 本地检查
 
-```bash
-npm ci
-npm run build
-npm run api:check
-```
-
-后台必须连接 API 才能登录，口令只由服务端环境变量验证；VPS 部署后会使用真实数据库、持久化图片存储和服务端身份验证。
-
-## VPS 部署
-
-完整步骤见 [VPS 部署说明](docs/VPS_DEPLOYMENT.md)。部署配置由 `compose.yaml`、`Dockerfile` 与 `Caddyfile` 组成。
-
-> `.env` 包含数据库密码、OAuth 密钥和会话密钥，绝不能提交到 GitHub。仓库只保留安全的 `.env.example` 模板。
