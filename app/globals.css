@@ -4903,6 +4903,16 @@ html[data-motion="lite"] .dimension-event-layer {
 }
 
 @media (max-width: 940px) {
+  html[data-motion="lite"] .magic-outer-layer {
+    animation: anime-magic-spin 46s linear infinite;
+    will-change: rotate;
+  }
+
+  html[data-motion="lite"] .magic-inner-layer {
+    animation: anime-magic-spin-reverse 34s linear infinite;
+    will-change: rotate;
+  }
+
   .global-ambient-effects,
   .dimension-event-layer {
     display: none;
