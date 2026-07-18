@@ -26,16 +26,13 @@
 | 部署 | Docker Compose、Caddy |
 | 样式与动效 | CSS 动画、Canvas、按需启用的 GPU 合成 |
 
-```text
-浏览器
-  │
-  │ HTTPS
-  ▼
-Caddy
-  ├── Vinext Web
-  └── Fastify API
-        ├── PostgreSQL
-        └── Uploads Volume
+```mermaid
+graph LR
+  A[Browser] --> B[Caddy]
+  B --> C[Vinext Web]
+  B --> D[Fastify API]
+  D --> E[PostgreSQL]
+  D --> F[Uploads]
 ```
 
 ## 仓库内容边界
