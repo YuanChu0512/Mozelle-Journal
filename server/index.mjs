@@ -16,8 +16,12 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  formatVisitorLocation,
   isAutomatedUserAgent,
+  isPublicVisitorIp,
+  locationFromCloudflareHeaders,
   normalizeAnalyticsPath,
+  normalizeLocationPart,
   normalizeVisitorIp,
 } from "./analytics.mjs";
 import { sanitizeImageMetadata } from "./image-sanitizer.mjs";
@@ -65,6 +69,9 @@ const app = Fastify({
   bodyLimit: 2 * 1024 * 1024,
 });
 let lastAnalyticsCleanupAt = 0;
+const activeLocationLookups = new Map();
+const failedLocationLookups = new Map();
+const ipLocationEndpoint = (process.env.IP_LOCATION_ENDPOINT || "https://ipwho.is").replace(/\/$/, "");
 
 await mkdir(uploadDirectory, { recursive: true });
 await app.register(cookie);
@@ -183,9 +190,103 @@ async function cleanupAnalyticsIfNeeded() {
   lastAnalyticsCleanupAt = now;
   try {
     await pool.query("DELETE FROM page_views WHERE visited_at < NOW() - INTERVAL '90 days'");
+    await pool.query("DELETE FROM ip_locations WHERE updated_at < NOW() - INTERVAL '90 days'");
   } catch (error) {
     app.log.error({ error }, "Unable to remove expired analytics records");
   }
+}
+
+async function saveVisitorLocation(ip, location) {
+  await pool.query(
+    `INSERT INTO ip_locations
+       (ip_address, country, region, city, location_label, source, updated_at)
+     VALUES ($1::inet, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT (ip_address) DO UPDATE SET
+       country = EXCLUDED.country,
+       region = EXCLUDED.region,
+       city = EXCLUDED.city,
+       location_label = EXCLUDED.location_label,
+       source = EXCLUDED.source,
+       updated_at = NOW()`,
+    [
+      ip,
+      normalizeLocationPart(location.country),
+      normalizeLocationPart(location.region),
+      normalizeLocationPart(location.city),
+      normalizeLocationPart(location.label, 240) || "未知地区",
+      normalizeLocationPart(location.source, 24) || "lookup",
+    ],
+  );
+}
+
+async function lookupVisitorLocation(ip) {
+  if (!isPublicVisitorIp(ip)) {
+    const location = {
+      country: "",
+      region: "",
+      city: "",
+      label: "本地或内网地址",
+      source: "local",
+    };
+    await saveVisitorLocation(ip, location);
+    return location;
+  }
+
+  const response = await fetch(
+    `${ipLocationEndpoint}/${encodeURIComponent(ip)}?fields=success,country,region,city&lang=zh-CN`,
+    {
+      headers: { accept: "application/json", "user-agent": "Mozelle-Journal/1.0" },
+      signal: AbortSignal.timeout(3000),
+    },
+  );
+  if (!response.ok) throw new Error(`IP location lookup failed with ${response.status}`);
+  const payload = await response.json();
+  if (payload?.success === false) throw new Error("IP location lookup returned no result");
+
+  const country = normalizeLocationPart(payload?.country);
+  const region = normalizeLocationPart(payload?.region);
+  const city = normalizeLocationPart(payload?.city);
+  const location = {
+    country,
+    region,
+    city,
+    label: formatVisitorLocation({ country, region, city }),
+    source: "ipwhois",
+  };
+  await saveVisitorLocation(ip, location);
+  return location;
+}
+
+async function ensureVisitorLocation(ip) {
+  const cached = await pool.query(
+    `SELECT location_label
+     FROM ip_locations
+     WHERE ip_address = $1::inet
+       AND updated_at > NOW() - INTERVAL '30 days'`,
+    [ip],
+  );
+  if (cached.rows.length) return cached.rows[0].location_label;
+
+  const failedAt = failedLocationLookups.get(ip) || 0;
+  if (Date.now() - failedAt < 60 * 60 * 1000) return null;
+  if (activeLocationLookups.has(ip)) return activeLocationLookups.get(ip);
+
+  const lookup = lookupVisitorLocation(ip)
+    .then((location) => {
+      failedLocationLookups.delete(ip);
+      return location.label;
+    })
+    .catch((error) => {
+      failedLocationLookups.set(ip, Date.now());
+      if (failedLocationLookups.size > 2000) {
+        failedLocationLookups.delete(failedLocationLookups.keys().next().value);
+      }
+      app.log.warn({ error }, "Unable to resolve visitor region");
+      return null;
+    })
+    .finally(() => activeLocationLookups.delete(ip));
+  activeLocationLookups.set(ip, lookup);
+  return lookup;
 }
 
 function cleanText(value, maxLength = 500) {
@@ -763,7 +864,7 @@ app.post(
       return reply.code(204).send();
     }
 
-    await pool.query(
+    const insertResult = await pool.query(
       `INSERT INTO page_views (ip_address, path)
        SELECT $1::inet, $2
        WHERE NOT EXISTS (
@@ -774,6 +875,16 @@ app.post(
        )`,
       [visitorIp, pagePath],
     );
+    if (insertResult.rowCount) {
+      const edgeLocation = locationFromCloudflareHeaders(request.headers, visitorIp);
+      if (edgeLocation) {
+        void saveVisitorLocation(visitorIp, edgeLocation).catch((error) => {
+          app.log.warn({ error }, "Unable to cache visitor region");
+        });
+      } else {
+        void ensureVisitorLocation(visitorIp);
+      }
+    }
     void cleanupAnalyticsIfNeeded();
     return reply.code(204).send();
   },
@@ -864,14 +975,39 @@ app.get("/api/admin/analytics", { preHandler: [requireAdmin] }, async (_request,
     ),
     pool.query(
       `SELECT
-         ip_address::text AS ip,
-         path,
-         visited_at
+         page_views.ip_address::text AS ip,
+         page_views.path,
+         page_views.visited_at,
+         ip_locations.location_label AS location
        FROM page_views
-       ORDER BY visited_at DESC
+       LEFT JOIN ip_locations
+         ON ip_locations.ip_address = page_views.ip_address
+       ORDER BY page_views.visited_at DESC
        LIMIT 100`,
     ),
   ]);
+
+  const missingLocations = [...new Set(
+    recentResult.rows
+      .filter((row) => !row.location)
+      .map((row) => row.ip),
+  )].slice(0, 10);
+  if (missingLocations.length) {
+    await Promise.allSettled(missingLocations.map((ip) => ensureVisitorLocation(ip)));
+    const refreshedRecent = await pool.query(
+      `SELECT
+         page_views.ip_address::text AS ip,
+         page_views.path,
+         page_views.visited_at,
+         ip_locations.location_label AS location
+       FROM page_views
+       LEFT JOIN ip_locations
+         ON ip_locations.ip_address = page_views.ip_address
+       ORDER BY page_views.visited_at DESC
+       LIMIT 100`,
+    );
+    recentResult.rows = refreshedRecent.rows;
+  }
 
   const summary = summaryResult.rows[0] ?? {};
   reply.header("cache-control", "private, no-store");
@@ -888,6 +1024,7 @@ app.get("/api/admin/analytics", { preHandler: [requireAdmin] }, async (_request,
     topPages: topPagesResult.rows,
     recent: recentResult.rows.map((row) => ({
       ip: row.ip,
+      location: row.location || "暂未定位",
       path: row.path,
       visitedAt: row.visited_at?.toISOString?.() ?? row.visited_at,
     })),

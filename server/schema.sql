@@ -99,3 +99,16 @@ CREATE INDEX IF NOT EXISTS page_views_ip_visited_idx
 
 CREATE INDEX IF NOT EXISTS page_views_path_visited_idx
   ON page_views (path, visited_at DESC);
+
+CREATE TABLE IF NOT EXISTS ip_locations (
+  ip_address INET PRIMARY KEY,
+  country TEXT NOT NULL DEFAULT '',
+  region TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  location_label TEXT NOT NULL DEFAULT '未知地区',
+  source TEXT NOT NULL DEFAULT 'lookup',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ip_locations_updated_idx
+  ON ip_locations (updated_at DESC);

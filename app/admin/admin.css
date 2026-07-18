@@ -1189,7 +1189,7 @@
 .analytics-visit-head,
 .analytics-visit-list article {
   display: grid;
-  grid-template-columns: minmax(130px, .72fr) minmax(210px, 1.35fr) 118px;
+  grid-template-columns: minmax(130px, .72fr) minmax(130px, .86fr) minmax(180px, 1.12fr) 118px;
   align-items: center;
   gap: 14px;
 }
@@ -1223,6 +1223,14 @@
 .analytics-visit-list time {
   color: var(--admin-muted);
   font: 9px var(--font-geist-mono), monospace;
+}
+
+.analytics-location {
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .analytics-visit-list code {
@@ -1327,7 +1335,6 @@
     padding: 12px 14px;
   }
 
-  .analytics-visit-list time {
-    grid-column: 1 / -1;
-  }
+  .analytics-visit-list a { grid-column: 1; }
+  .analytics-visit-list time { grid-column: 2; text-align: right; }
 }

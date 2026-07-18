@@ -93,7 +93,7 @@ type AnalyticsPayload = {
   };
   daily: Array<{ date: string; views: number; visitors: number }>;
   topPages: Array<{ path: string; views: number; visitors: number }>;
-  recent: Array<{ ip: string; path: string; visitedAt: string }>;
+  recent: Array<{ ip: string; location: string; path: string; visitedAt: string }>;
 };
 
 const defaultSettings: SiteSettings = {
@@ -1221,16 +1221,17 @@ export default function AdminPage() {
               <div className="analytics-columns">
                 <section className="panel analytics-recent-panel">
                   <div className="panel-heading">
-                    <div><span>RECENT VISITORS</span><h2>最近访问 IP 与地址</h2></div>
+                    <div><span>RECENT VISITORS</span><h2>最近访问 IP 与所在地区</h2></div>
                     <small>最近 100 条</small>
                   </div>
                   <div className="analytics-visit-head" aria-hidden="true">
-                    <span>IP</span><span>访问地址</span><span>时间</span>
+                    <span>IP</span><span>所在地区</span><span>访问页面</span><span>时间</span>
                   </div>
                   <div className="analytics-visit-list">
                     {analytics.recent.map((visit, index) => (
                       <article key={`${visit.ip}-${visit.path}-${visit.visitedAt}-${index}`}>
                         <code>{visit.ip}</code>
+                        <span className="analytics-location">{visit.location}</span>
                         <a href={visit.path} target="_blank" rel="noreferrer">{visit.path}</a>
                         <time>{formatVisitDate(visit.visitedAt)}</time>
                       </article>
