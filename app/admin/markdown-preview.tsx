@@ -3,7 +3,12 @@
 import type { ReactNode } from "react";
 
 function safeImageUrl(value: string): string | null {
-  if (value.startsWith("/uploads/")) return value;
+  if (value.startsWith("/uploads/") || value.startsWith("/articles/")) return value;
+  return null;
+}
+
+function safeLinkUrl(value: string): string | null {
+  if (value.startsWith("/")) return value;
   try {
     const url = new URL(value);
     return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
@@ -32,7 +37,7 @@ function renderInline(value: string): ReactNode[] {
         ),
       );
     } else if (match[4] !== undefined) {
-      const href = safeImageUrl(match[5]);
+      const href = safeLinkUrl(match[5]);
       nodes.push(
         href ? (
           <a key={key} href={href} target="_blank" rel="noreferrer">
@@ -102,10 +107,13 @@ export function MarkdownPreview({ markdown }: { markdown: string }) {
     blocks.push(<p key={index}>{renderInline(line)}</p>);
   });
 
-  if (code?.length) {
+  // The parser mutates `code` inside the line iterator; keep an explicit local
+  // type here because TypeScript does not carry that closure mutation forward.
+  const trailingCode = code as string[] | null;
+  if (trailingCode?.length) {
     blocks.push(
       <pre key="code-final">
-        <code>{code.join("\n")}</code>
+        <code>{trailingCode.join("\n")}</code>
       </pre>,
     );
   }

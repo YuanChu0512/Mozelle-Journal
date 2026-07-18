@@ -2,12 +2,41 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { fallbackArticles } from "../article-data";
+import ImageLightbox, { type LightboxImage } from "../image-lightbox";
+import { getEnglishEditorTranslation, localizeArticle } from "../i18n";
+import { previewMediaUrl } from "../media-utils";
 import { MarkdownPreview } from "./markdown-preview";
 import "./admin.css";
 
 type AdminTheme = "day" | "night";
 type Section = "dashboard" | "posts" | "editor" | "media" | "settings";
 type PostStatus = "draft" | "published" | "scheduled";
+type ContentType = "article" | "lab" | "collection";
+
+type AdminGalleryItem = {
+  src: string;
+  alt: string;
+  caption: string;
+};
+
+type AdminSource = {
+  label: string;
+  href: string;
+};
+
+type AdminTranslation = {
+  title: string;
+  summary: string;
+  tags: string[];
+  contentMarkdown: string;
+  gallery: AdminGalleryItem[];
+  sources: AdminSource[];
+};
+
+type AdminTranslations = {
+  en: AdminTranslation;
+};
 
 type AdminPost = {
   id: string;
@@ -20,6 +49,9 @@ type AdminPost = {
   readTime: string;
   contentMarkdown: string;
   coverUrl: string | null;
+  contentType: ContentType;
+  gallery: AdminGalleryItem[];
+  translations: AdminTranslations;
   status: PostStatus;
   publishedAt: string | null;
   updatedAt: string;
@@ -32,6 +64,7 @@ type MediaAsset = {
   alt: string;
   size: number;
   createdAt: string;
+  builtIn?: boolean;
 };
 
 type SessionPayload = {
@@ -57,6 +90,16 @@ const defaultSettings: SiteSettings = {
   defaultAuthor: "Mozelle",
 };
 
+const builtInAssets: MediaAsset[] = [
+  { id: "builtin-ddr5-96gb", url: "/articles/ddr5-96gb-8400.jpg", filename: "ddr5-96gb-8400.jpg", alt: "96GB DDR5-8400 稳定性测试记录", size: 1_203_094, createdAt: "2026-05-27T12:00:00.000Z", builtIn: true },
+  { id: "builtin-5090-laptop", url: "/articles/rtx5090-laptop-timespy.jpg", filename: "rtx5090-laptop-timespy.jpg", alt: "RTX 5090 Laptop Time Spy 结果", size: 477_623, createdAt: "2025-08-16T12:00:00.000Z", builtIn: true },
+  { id: "builtin-5090-tse-result", url: "/articles/rtx5090-tse-result.png", filename: "rtx5090-tse-result.png", alt: "RTX 5090 Time Spy Extreme 有效结果", size: 1_154_164, createdAt: "2026-01-20T12:00:00.000Z", builtIn: true },
+  { id: "builtin-5090-tse-rank", url: "/articles/rtx5090-tse-rank.jpg", filename: "rtx5090-tse-rank.jpg", alt: "Time Spy Extreme 提交当日排行榜", size: 921_101, createdAt: "2026-01-20T12:00:00.000Z", builtIn: true },
+  { id: "builtin-5090-tse-details", url: "/articles/rtx5090-tse-details.png", filename: "rtx5090-tse-details.png", alt: "RTX 5090 跑分硬件与频率详情", size: 173_458, createdAt: "2026-01-20T12:00:00.000Z", builtIn: true },
+  { id: "builtin-sparkle-full", url: "/articles/sparkle-cosplay-full.jpg", filename: "sparkle-cosplay-full.jpg", alt: "花火 Cosplay 全身造型记录", size: 2_619_791, createdAt: "2026-07-18T09:30:00.000Z", builtIn: true },
+  { id: "builtin-sparkle-close", url: "/articles/sparkle-cosplay-close.jpg", filename: "sparkle-cosplay-close.jpg", alt: "花火 Cosplay 妆面与假发近景", size: 829_348, createdAt: "2026-07-18T09:30:00.000Z", builtIn: true },
+];
+
 const demoPosts: AdminPost[] = [
   {
     id: "demo-ddr5",
@@ -70,6 +113,18 @@ const demoPosts: AdminPost[] = [
     contentMarkdown:
       "## 从变量控制开始\n\n内存超频不是单纯提高频率，而是在信号完整性、颗粒特性与内存控制器能力之间寻找平衡。\n\n> 每轮只改变少量参数，并记录温度、错误位置与测试环境。\n\n- 先确定目标频率\n- 再处理主次时序\n- 最后验证冷启动与日常负载",
     coverUrl: null,
+    contentType: "article",
+    gallery: [],
+    translations: {
+      en: {
+        title: "DDR5 overclocking: voltage, timings, and stability",
+        summary: "Put VDD, VDDQ, VPP, and memory-controller voltage into one testable model.",
+        tags: ["DDR5", "Voltage", "Timings"],
+        contentMarkdown: "## Start with variable control\n\nMemory overclocking is a balance between signal integrity, IC characteristics, and the memory controller.\n\n> Change only a few parameters per round, then record temperature, error location, and the test environment.",
+        gallery: [],
+        sources: [],
+      },
+    },
     status: "published",
     publishedAt: "2026-07-12T12:00:00.000Z",
     updatedAt: "2026-07-13T03:20:00.000Z",
@@ -85,38 +140,241 @@ const demoPosts: AdminPost[] = [
     readTime: "8 min",
     contentMarkdown: "## 供电路径\n\nDDR5 将主要电源管理功能移到内存模组上。",
     coverUrl: null,
+    contentType: "article",
+    gallery: [],
+    translations: {
+      en: {
+        title: "Motherboards and PMICs: where DDR5 voltages come from",
+        summary: "Trace the power path from the motherboard input through the DIMM PMIC to the memory ICs.",
+        tags: ["PMIC", "Power delivery", "Motherboard"],
+        contentMarkdown: "## Power path\n\nDDR5 moves key power-management functions onto the memory module.",
+        gallery: [],
+        sources: [],
+      },
+    },
     status: "draft",
     publishedAt: null,
     updatedAt: "2026-07-12T10:08:00.000Z",
   },
   {
     id: "demo-cos",
-    title: "下一次 Cos 拍摄的布光记录",
-    slug: "cos-lighting-note",
-    summary: "记录主光、轮廓光与环境色的组合。",
+    title: "花火 Cosplay 影像收藏",
+    slug: "sparkle-cosplay-collection",
+    summary: "以完整造型与近景细节组成的角色影像收藏。",
     category: "游戏与次元",
     tags: ["Cosplay", "布光"],
     code: "ACG / 007",
-    readTime: "6 min",
-    contentMarkdown: "## 拍摄计划\n\n这篇文章将在周末完成拍摄后发布。",
+    readTime: "",
+    contentMarkdown: "",
     coverUrl: null,
+    contentType: "collection",
+    gallery: [],
+    translations: {
+      en: {
+        title: "Sparkle cosplay image collection",
+        summary: "A character image collection built from full-look and close-up detail studies.",
+        tags: ["Cosplay", "Lighting"],
+        contentMarkdown: "",
+        gallery: [],
+        sources: [],
+      },
+    },
     status: "scheduled",
     publishedAt: "2026-07-20T10:00:00.000Z",
     updatedAt: "2026-07-13T01:32:00.000Z",
   },
 ];
 
-const emptyPost = (): AdminPost => ({
+const contentTypeLabels: Record<ContentType, string> = {
+  article: "技术文章",
+  lab: "实验与超频笔记",
+  collection: "次元收藏",
+};
+
+const contentTypeShortLabels: Record<ContentType, string> = {
+  article: "文章",
+  lab: "实验",
+  collection: "收藏",
+};
+
+const isContentType = (value: unknown): value is ContentType =>
+  value === "article" || value === "lab" || value === "collection";
+
+function normalizeGallery(value: unknown): AdminGalleryItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const source = item as { src?: unknown; alt?: unknown; caption?: unknown };
+    if (typeof source.src !== "string" || !source.src.trim()) return [];
+    return [{
+      src: source.src,
+      alt: typeof source.alt === "string" ? source.alt : "",
+      caption: typeof source.caption === "string" ? source.caption : "",
+    }];
+  });
+}
+
+function normalizeSources(value: unknown): AdminSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const source = item as { label?: unknown; href?: unknown };
+    if (typeof source.href !== "string" || !source.href.trim()) return [];
+    return [{
+      label: typeof source.label === "string" ? source.label : source.href,
+      href: source.href,
+    }];
+  });
+}
+
+function emptyEnglishTranslation(): AdminTranslation {
+  return {
+    title: "",
+    summary: "",
+    tags: [],
+    contentMarkdown: "",
+    gallery: [],
+    sources: [],
+  };
+}
+
+function normalizeTranslation(value: unknown): AdminTranslation {
+  if (!value || typeof value !== "object") return emptyEnglishTranslation();
+  const source = value as {
+    title?: unknown;
+    summary?: unknown;
+    tags?: unknown;
+    contentMarkdown?: unknown;
+    gallery?: unknown;
+    sources?: unknown;
+  };
+  return {
+    title: typeof source.title === "string" ? source.title : "",
+    summary: typeof source.summary === "string" ? source.summary : "",
+    tags: Array.isArray(source.tags)
+      ? source.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim()))
+      : [],
+    contentMarkdown:
+      typeof source.contentMarkdown === "string" ? source.contentMarkdown : "",
+    gallery: normalizeGallery(source.gallery),
+    sources: normalizeSources(source.sources),
+  };
+}
+
+function hasEnglishDraft(value: AdminTranslation): boolean {
+  return Boolean(
+    value.title.trim() ||
+      value.summary.trim() ||
+      value.tags.length ||
+      value.contentMarkdown.trim() ||
+      value.gallery.some((item) => item.alt.trim() || item.caption.trim()) ||
+      value.sources.length,
+  );
+}
+
+function alignEnglishGallery(
+  primaryGallery: AdminGalleryItem[],
+  englishGallery: AdminGalleryItem[],
+  fallbackGallery: AdminGalleryItem[] = [],
+): AdminGalleryItem[] {
+  const metadataBySource = new Map(
+    englishGallery.map((item) => [item.src, item] as const),
+  );
+  const fallbackBySource = new Map(
+    fallbackGallery.map((item) => [item.src, item] as const),
+  );
+  return primaryGallery.map((item) => {
+    const english = metadataBySource.get(item.src);
+    const fallback = fallbackBySource.get(item.src);
+    return {
+      src: item.src,
+      alt: english?.alt.trim() ? english.alt : fallback?.alt ?? "",
+      caption: english?.caption.trim() ? english.caption : fallback?.caption ?? "",
+    };
+  });
+}
+
+function getSeededEnglishTranslation(slug: string): AdminTranslation {
+  const editorSeed = getEnglishEditorTranslation(slug);
+  const fallbackArticle = fallbackArticles.find(
+    (article) => (article.slug ?? article.id) === slug,
+  );
+  const localizedFallback = fallbackArticle
+    ? localizeArticle(fallbackArticle, "en")
+    : undefined;
+  const seeded = normalizeTranslation({
+    ...editorSeed,
+    sources: localizedFallback?.sources ?? [],
+  });
+  return seeded;
+}
+
+function normalizeAdminPost(post: AdminPost): AdminPost {
+  const gallery = normalizeGallery(post.gallery);
+  const translations = (post as AdminPost & {
+    translations?: { en?: unknown };
+  }).translations;
+  const rawEnglish = translations?.en;
+  const storedEnglish = normalizeTranslation(translations?.en);
+  const seededEnglish = post.slug
+    ? getSeededEnglishTranslation(post.slug)
+    : emptyEnglishTranslation();
+  const hasStoredSources = Boolean(
+    rawEnglish &&
+      typeof rawEnglish === "object" &&
+      Object.hasOwn(rawEnglish, "sources"),
+  );
+  const mergedSources = hasStoredSources
+    ? storedEnglish.sources
+    : seededEnglish.sources;
+  const english: AdminTranslation = {
+    title: storedEnglish.title.trim() ? storedEnglish.title : seededEnglish.title,
+    summary: storedEnglish.summary.trim() ? storedEnglish.summary : seededEnglish.summary,
+    tags: storedEnglish.tags.length ? storedEnglish.tags : seededEnglish.tags,
+    contentMarkdown: storedEnglish.contentMarkdown.trim()
+      ? storedEnglish.contentMarkdown
+      : seededEnglish.contentMarkdown,
+    gallery: alignEnglishGallery(
+      gallery,
+      storedEnglish.gallery,
+      seededEnglish.gallery,
+    ),
+    sources: mergedSources,
+  };
+
+  return {
+    ...post,
+    contentType: isContentType(post.contentType) ? post.contentType : "article",
+    gallery,
+    contentMarkdown: typeof post.contentMarkdown === "string" ? post.contentMarkdown : "",
+    translations: {
+      en: {
+        ...english,
+        gallery: alignEnglishGallery(gallery, english.gallery),
+      },
+    },
+  };
+}
+
+const emptyPost = (contentType: ContentType = "article"): AdminPost => ({
   id: "",
   title: "",
   slug: "",
   summary: "",
-  category: "电子",
+  category: contentType === "collection" ? "游戏与次元" : contentType === "lab" ? "超频" : "电子",
   tags: [],
-  code: "EE / NEW",
-  readTime: "5 min",
-  contentMarkdown: "# 新文章\n\n从这里开始记录。",
+  code: contentType === "collection" ? "ACG / NEW" : contentType === "lab" ? "LAB / NEW" : "EE / NEW",
+  readTime: contentType === "collection" ? "" : "8 min",
+  contentMarkdown:
+    contentType === "collection"
+      ? ""
+      : contentType === "lab"
+        ? "# 新实验笔记\n\n## 目标与环境\n\n记录硬件、固件、环境温度与变量。\n\n## 方法与结果\n\n保留可复核的数据与截图。\n\n## 限制与复盘\n\n说明结论适用范围。"
+        : "# 新技术文章\n\n## 问题\n\n从这里开始记录。\n\n## 原理与证据\n\n补充可核查的依据。\n\n## 结论与边界\n\n说明结论的适用条件。",
   coverUrl: null,
+  contentType,
+  gallery: [],
+  translations: { en: emptyEnglishTranslation() },
   status: "draft",
   publishedAt: null,
   updatedAt: new Date().toISOString(),
@@ -124,8 +382,8 @@ const emptyPost = (): AdminPost => ({
 
 const navItems: Array<{ id: Section; label: string; index: string }> = [
   { id: "dashboard", label: "控制台", index: "01" },
-  { id: "posts", label: "文章管理", index: "02" },
-  { id: "editor", label: "文章编辑", index: "03" },
+  { id: "posts", label: "内容管理", index: "02" },
+  { id: "editor", label: "内容编辑", index: "03" },
   { id: "media", label: "媒体库", index: "04" },
   { id: "settings", label: "站点设置", index: "05" },
 ];
@@ -138,6 +396,15 @@ function formatDate(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function toDateTimeLocal(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  return new Date(date.valueOf() - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
 }
 
 function statusText(status: PostStatus): string {
@@ -172,6 +439,9 @@ export default function AdminPage() {
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
+  const [editorLocale, setEditorLocale] = useState<"zh" | "en">("zh");
+  const [contentTypeFilter, setContentTypeFilter] = useState<"all" | ContentType>("all");
+  const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -205,11 +475,19 @@ export default function AdminPage() {
       fetch("/api/admin/settings").then((response) => response.json()),
     ])
       .then(([postPayload, mediaPayload, settingsPayload]) => {
-        if (postPayload.posts?.length) {
-          setPosts(postPayload.posts);
-          setDraft(postPayload.posts[0]);
-        }
-        if (mediaPayload.assets) setAssets(mediaPayload.assets);
+        const nextPosts = Array.isArray(postPayload.posts)
+          ? (postPayload.posts as AdminPost[]).map(normalizeAdminPost)
+          : [];
+        setPosts(nextPosts);
+        setDraft(nextPosts[0] ?? emptyPost());
+        const uploadedAssets = Array.isArray(mediaPayload.assets)
+          ? mediaPayload.assets as MediaAsset[]
+          : [];
+        const builtInUrls = new Set(builtInAssets.map((asset) => asset.url));
+        setAssets([
+          ...builtInAssets,
+          ...uploadedAssets.filter((asset) => !builtInUrls.has(asset.url)),
+        ]);
         if (settingsPayload.settings) {
           setSettings((current) => ({ ...current, ...settingsPayload.settings }));
         }
@@ -229,9 +507,30 @@ export default function AdminPage() {
       published: posts.filter((post) => post.status === "published").length,
       drafts: posts.filter((post) => post.status === "draft").length,
       scheduled: posts.filter((post) => post.status === "scheduled").length,
+      articles: posts.filter((post) => post.contentType === "article").length,
+      labs: posts.filter((post) => post.contentType === "lab").length,
+      collections: posts.filter((post) => post.contentType === "collection").length,
     }),
     [posts],
   );
+
+  const filteredPosts = useMemo(
+    () => posts.filter((post) => contentTypeFilter === "all" || post.contentType === contentTypeFilter),
+    [contentTypeFilter, posts],
+  );
+
+  const editorCopy = editorLocale === "zh"
+    ? {
+        title: draft.title,
+        summary: draft.summary,
+        tags: draft.tags,
+        contentMarkdown: draft.contentMarkdown,
+      }
+    : draft.translations.en;
+
+  const localizedGallery = editorLocale === "zh"
+    ? draft.gallery
+    : alignEnglishGallery(draft.gallery, draft.translations.en.gallery);
 
   const changeTheme = () => {
     const next = theme === "night" ? "day" : "night";
@@ -245,8 +544,12 @@ export default function AdminPage() {
     setPreviewMode("edit");
   };
 
-  const createPost = () => {
-    setDraft({ ...emptyPost(), category: settings.defaultCategory });
+  const createPost = (contentType: ContentType = "article") => {
+    const next = emptyPost(contentType);
+    setDraft({
+      ...next,
+      category: contentType === "article" ? settings.defaultCategory : next.category,
+    });
     setSection("editor");
     setPreviewMode("edit");
   };
@@ -255,11 +558,80 @@ export default function AdminPage() {
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
+  const updateLocalizedText = (
+    key: "title" | "summary" | "contentMarkdown",
+    value: string,
+  ) => {
+    if (editorLocale === "zh") {
+      setDraft((current) => ({ ...current, [key]: value }));
+      return;
+    }
+    setDraft((current) => ({
+      ...current,
+      translations: {
+        ...current.translations,
+        en: { ...current.translations.en, [key]: value },
+      },
+    }));
+  };
+
+  const updateLocalizedTags = (tags: string[]) => {
+    if (editorLocale === "zh") {
+      updateDraft("tags", tags);
+      return;
+    }
+    setDraft((current) => ({
+      ...current,
+      translations: {
+        ...current.translations,
+        en: { ...current.translations.en, tags },
+      },
+    }));
+  };
+
+  const appendLocalizedMarkdown = (value: string) => {
+    updateLocalizedText("contentMarkdown", `${editorCopy.contentMarkdown}${value}`);
+  };
+
+  const changeDraftContentType = (contentType: ContentType) => {
+    setDraft((current) => {
+      if (current.contentType === contentType) return current;
+      const template = emptyPost(contentType);
+      const currentTemplate = emptyPost(current.contentType);
+      const isUntouchedNewContent =
+        !current.id &&
+        !current.title.trim() &&
+        !current.slug.trim() &&
+        !current.summary.trim() &&
+        current.tags.length === 0 &&
+        current.gallery.length === 0 &&
+        !current.coverUrl &&
+        current.category === currentTemplate.category &&
+        current.code === currentTemplate.code &&
+        current.readTime === currentTemplate.readTime &&
+        current.contentMarkdown === currentTemplate.contentMarkdown &&
+        !hasEnglishDraft(current.translations.en);
+      return {
+        ...current,
+        contentType,
+        category: isUntouchedNewContent ? template.category : current.category,
+        code: isUntouchedNewContent ? template.code : current.code,
+        readTime:
+          contentType === "collection"
+            ? ""
+            : current.readTime || template.readTime,
+        contentMarkdown: isUntouchedNewContent
+          ? template.contentMarkdown
+          : current.contentMarkdown,
+      };
+    });
+  };
+
   const persistPost = async (status: PostStatus) => {
     const title = draft.title.trim();
     const slug = slugify(draft.slug || draft.title);
     if (!title || !slug) {
-      setNotice("请填写文章标题和链接地址。 ");
+      setNotice("请填写内容标题和链接地址。");
       return;
     }
     const next: AdminPost = {
@@ -269,10 +641,12 @@ export default function AdminPage() {
       status,
       publishedAt:
         status === "published"
-          ? new Date().toISOString()
+          ? draft.status === "published" && draft.publishedAt
+            ? draft.publishedAt
+            : new Date().toISOString()
           : status === "scheduled"
             ? draft.publishedAt
-            : null,
+            : draft.publishedAt,
       updatedAt: new Date().toISOString(),
     };
 
@@ -288,9 +662,16 @@ export default function AdminPage() {
       );
       if (!response.ok) throw new Error((await response.text()) || "保存失败");
       const payload = (await response.json()) as { post: AdminPost };
-      setDraft(payload.post);
-      setPosts((current) => [payload.post, ...current.filter((post) => post.id !== payload.post.id)]);
-      setNotice(status === "published" ? "文章已发布。" : status === "scheduled" ? "已设置定时发布。" : "草稿已保存。");
+      const responseTranslations = (payload.post as AdminPost & {
+        translations?: { en?: unknown };
+      }).translations;
+      const normalizedPost = normalizeAdminPost(payload.post);
+      const savedPost = responseTranslations?.en
+        ? normalizedPost
+        : { ...normalizedPost, translations: next.translations };
+      setDraft(savedPost);
+      setPosts((current) => [savedPost, ...current.filter((post) => post.id !== savedPost.id)]);
+      setNotice(status === "published" ? "内容已发布。" : status === "scheduled" ? "已设置定时发布。" : "草稿已保存。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "保存失败，请稍后重试。");
     } finally {
@@ -299,14 +680,14 @@ export default function AdminPage() {
   };
 
   const deletePost = async (post: AdminPost) => {
-    if (!window.confirm(`确定删除《${post.title}》吗？此操作不可撤销。`)) return;
+    if (!window.confirm(`确定删除内容《${post.title}》吗？此操作不可撤销。`)) return;
     try {
       const response = await fetch(`/api/admin/posts/${encodeURIComponent(post.id)}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("删除失败");
       setPosts((current) => current.filter((item) => item.id !== post.id));
-      setNotice("文章已删除。");
+      setNotice("内容已删除。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "删除失败。");
     }
@@ -337,21 +718,158 @@ export default function AdminPage() {
   };
 
   const insertImage = (asset: MediaAsset) => {
-    updateDraft(
+    updateLocalizedText(
       "contentMarkdown",
-      `${draft.contentMarkdown.trimEnd()}\n\n![${asset.alt || asset.filename}](${asset.url})\n`,
+      `${editorCopy.contentMarkdown.trimEnd()}\n\n![${asset.alt || asset.filename}](${asset.url})\n`,
     );
     setSection("editor");
-    setNotice("图片 Markdown 已插入文章末尾。");
+    setNotice(`图片 Markdown 已插入${editorLocale === "zh" ? "中文" : "英文"}正文末尾。`);
   };
 
   const setAsCover = (asset: MediaAsset) => {
     updateDraft("coverUrl", asset.url);
     setSection("editor");
-    setNotice("已将图片设为文章封面。");
+    setNotice("已将图片设为当前内容的主视觉。");
+  };
+
+  const addToGallery = (asset: MediaAsset) => {
+    if (draft.gallery.some((item) => item.src === asset.url)) {
+      setNotice("这张图片已经在当前图库中。");
+      return;
+    }
+    setDraft((current) => {
+      const gallery = [
+        ...current.gallery,
+        { src: asset.url, alt: asset.alt || asset.filename, caption: "" },
+      ];
+      return {
+        ...current,
+        gallery,
+        translations: {
+          ...current.translations,
+          en: {
+            ...current.translations.en,
+            gallery: alignEnglishGallery(gallery, current.translations.en.gallery),
+          },
+        },
+      };
+    });
+    setSection("editor");
+    setNotice("图片已加入当前内容的图库。");
+  };
+
+  const updateGalleryItem = (
+    index: number,
+    key: "alt" | "caption",
+    value: string,
+  ) => {
+    setDraft((current) => {
+      if (editorLocale === "zh") {
+        const gallery = current.gallery.map((item, itemIndex) =>
+          itemIndex === index ? { ...item, [key]: value } : item,
+        );
+        return {
+          ...current,
+          gallery,
+          translations: {
+            ...current.translations,
+            en: {
+              ...current.translations.en,
+              gallery: alignEnglishGallery(gallery, current.translations.en.gallery),
+            },
+          },
+        };
+      }
+
+      const source = current.gallery[index]?.src;
+      if (!source) return current;
+      const gallery = alignEnglishGallery(
+        current.gallery,
+        current.translations.en.gallery,
+      ).map((item) => item.src === source ? { ...item, [key]: value } : item);
+      return {
+        ...current,
+        translations: {
+          ...current.translations,
+          en: { ...current.translations.en, gallery },
+        },
+      };
+    });
+  };
+
+  const moveGalleryItem = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= draft.gallery.length) return;
+    setDraft((current) => {
+      const gallery = [...current.gallery];
+      [gallery[index], gallery[nextIndex]] = [gallery[nextIndex], gallery[index]];
+      return {
+        ...current,
+        gallery,
+        translations: {
+          ...current.translations,
+          en: {
+            ...current.translations.en,
+            gallery: alignEnglishGallery(gallery, current.translations.en.gallery),
+          },
+        },
+      };
+    });
+  };
+
+  const removeGalleryItem = (index: number) => {
+    setDraft((current) => {
+      const gallery = current.gallery.filter((_, itemIndex) => itemIndex !== index);
+      return {
+        ...current,
+        gallery,
+        translations: {
+          ...current.translations,
+          en: {
+            ...current.translations.en,
+            gallery: alignEnglishGallery(gallery, current.translations.en.gallery),
+          },
+        },
+      };
+    });
+  };
+
+  const previewAsset = (asset: MediaAsset) => {
+    const images = assets.map((item) => ({
+      src: item.url,
+      alt: item.alt || item.filename,
+      caption: item.filename,
+    }));
+    setLightbox({
+      images,
+      index: Math.max(0, assets.findIndex((item) => item.id === asset.id)),
+    });
+  };
+
+  const previewGallery = (index: number) => {
+    setLightbox({
+      images: localizedGallery.map((item) => ({
+        src: item.src,
+        alt: item.alt,
+        caption: item.caption,
+      })),
+      index,
+    });
+  };
+
+  const previewCover = () => {
+    if (!draft.coverUrl) return;
+    setLightbox({
+      images: [{ src: draft.coverUrl, alt: draft.title || "主视觉预览" }],
+      index: 0,
+    });
   };
 
   const deleteAsset = async (asset: MediaAsset) => {
+    if (asset.builtIn) {
+      setNotice("内置资料图会随站点版本保留，不能从后台删除。");
+      return;
+    }
     if (!window.confirm(`确定删除图片“${asset.filename}”吗？`)) return;
     try {
       const response = await fetch(`/api/admin/media/${encodeURIComponent(asset.id)}`, {
@@ -450,7 +968,7 @@ export default function AdminPage() {
           <span className="login-kicker">MOZELLE / CONTROL ACCESS</span>
           <div className="login-mark"><i /></div>
           <h1>进入博客控制后台</h1>
-          <p>输入管理员密码后进入文章、图片与站点设置终端。</p>
+          <p>输入管理员密码后进入内容、图片与站点设置终端。</p>
           <form className="admin-password-form" onSubmit={authenticateWithPassword}>
             <label htmlFor="admin-password">ADMIN PASSWORD</label>
             <input
@@ -533,14 +1051,14 @@ export default function AdminPage() {
             <section className="dashboard-view">
               <div className="view-heading">
                 <div><span>01 / OVERVIEW</span><h1>欢迎回来，Mozelle。</h1></div>
-                <button type="button" className="primary-action" onClick={createPost}>＋ 写新文章</button>
+                <button type="button" className="primary-action" onClick={() => createPost()}>＋ 新建内容</button>
               </div>
               <div className="stat-grid">
                 {[
-                  ["全部文章", counts.total, "TOTAL"],
-                  ["已发布", counts.published, "LIVE"],
-                  ["草稿", counts.drafts, "DRAFT"],
-                  ["定时发布", counts.scheduled, "QUEUE"],
+                  ["全部内容", counts.total, "TOTAL"],
+                  ["技术文章", counts.articles, "ARTICLE"],
+                  ["实验笔记", counts.labs, "LAB"],
+                  ["次元收藏", counts.collections, "COLLECT"],
                 ].map(([label, value, meta]) => (
                   <article key={label}>
                     <span>{meta}</span><strong>{String(value).padStart(2, "0")}</strong><p>{label}</p><i />
@@ -549,12 +1067,12 @@ export default function AdminPage() {
               </div>
               <div className="dashboard-columns">
                 <section className="panel recent-panel">
-                  <div className="panel-heading"><div><span>RECENT FILES</span><h2>最近文章</h2></div><button onClick={() => setSection("posts")}>查看全部 →</button></div>
+                  <div className="panel-heading"><div><span>RECENT FILES</span><h2>最近内容</h2></div><button onClick={() => setSection("posts")}>查看全部 →</button></div>
                   <div className="compact-post-list">
                     {posts.slice(0, 4).map((post) => (
                       <button key={post.id} onClick={() => editPost(post)}>
                         <span className={`status-dot status-${post.status}`} />
-                        <span><strong>{post.title}</strong><small>{post.category} · {formatDate(post.updatedAt)}</small></span>
+                        <span><strong>{post.title}</strong><small>{contentTypeShortLabels[post.contentType]} · {post.category} · {formatDate(post.updatedAt)}</small></span>
                         <em>{statusText(post.status)}</em><i>↗</i>
                       </button>
                     ))}
@@ -562,7 +1080,9 @@ export default function AdminPage() {
                 </section>
                 <section className="panel quick-panel">
                   <div className="panel-heading"><div><span>QUICK ACCESS</span><h2>快捷操作</h2></div></div>
-                  <button onClick={createPost}><span>✦</span><strong>创建空白文章</strong><small>打开 Markdown 编辑器</small></button>
+                  <button onClick={() => createPost("article")}><span>✦</span><strong>新建技术文章</strong><small>原理、证据与结论</small></button>
+                  <button onClick={() => createPost("lab")}><span>⌁</span><strong>新建实验笔记</strong><small>环境、方法与复盘</small></button>
+                  <button onClick={() => createPost("collection")}><span>◇</span><strong>新建次元收藏</strong><small>以图片与图注为主</small></button>
                   <button onClick={() => fileInput.current?.click()}><span>◇</span><strong>上传新图片</strong><small>添加到媒体库</small></button>
                   <button onClick={() => setSection("settings")}><span>⌁</span><strong>修改站点信息</strong><small>标题、介绍和默认分类</small></button>
                 </section>
@@ -573,20 +1093,37 @@ export default function AdminPage() {
           {section === "posts" && (
             <section className="posts-view">
               <div className="view-heading">
-                <div><span>02 / CONTENT</span><h1>文章管理</h1><p>统一管理草稿、已发布文章与发布计划。</p></div>
-                <button type="button" className="primary-action" onClick={createPost}>＋ 新建文章</button>
+                <div><span>02 / CONTENT</span><h1>内容管理</h1><p>统一管理技术文章、实验笔记、次元收藏与发布计划。</p></div>
+                <div className="content-list-actions">
+                  <label className="content-type-filter">
+                    <span className="sr-only">筛选内容类型</span>
+                    <select
+                      value={contentTypeFilter}
+                      onChange={(event) => setContentTypeFilter(event.target.value as "all" | ContentType)}
+                    >
+                      <option value="all">全部类型</option>
+                      <option value="article">技术文章</option>
+                      <option value="lab">实验与超频笔记</option>
+                      <option value="collection">次元收藏</option>
+                    </select>
+                  </label>
+                  <button type="button" className="primary-action" onClick={() => createPost()}>＋ 新建内容</button>
+                </div>
               </div>
               <div className="post-table panel">
-                <div className="post-table-head"><span>文章</span><span>分类</span><span>状态</span><span>更新时间</span><span>操作</span></div>
-                {posts.map((post) => (
+                <div className="post-table-head"><span>内容</span><span>类型 / 分类</span><span>状态</span><span>更新时间</span><span>操作</span></div>
+                {filteredPosts.map((post) => (
                   <article key={post.id}>
                     <div><strong>{post.title}</strong><small>/{post.slug}</small></div>
-                    <span>{post.category}</span>
+                    <span className="content-type-cell"><em data-content-type={post.contentType}>{contentTypeShortLabels[post.contentType]}</em>{post.category}</span>
                     <span className={`status-pill status-${post.status}`}>{statusText(post.status)}</span>
                     <time>{formatDate(post.updatedAt)}</time>
                     <div className="row-actions"><button onClick={() => editPost(post)}>编辑</button><button onClick={() => deletePost(post)}>删除</button></div>
                   </article>
                 ))}
+                {!filteredPosts.length && (
+                  <div className="empty-content-list">当前筛选条件下还没有内容。</div>
+                )}
               </div>
             </section>
           )}
@@ -594,45 +1131,160 @@ export default function AdminPage() {
           {section === "editor" && (
             <section className="editor-view">
               <div className="editor-heading">
-                <div><span>03 / EDITOR</span><h1>{draft.id ? "编辑文章" : "新建文章"}</h1><p>{saving ? "正在保存…" : `上次更新：${formatDate(draft.updatedAt)}`}</p></div>
-                <div><button type="button" onClick={() => persistPost("draft")}>保存草稿</button><button type="button" className="primary-action" onClick={() => persistPost("published")}>发布文章</button></div>
+                <div><span>03 / EDITOR</span><h1>{draft.id ? "编辑" : "新建"}{contentTypeLabels[draft.contentType]}</h1><p>{saving ? "正在保存…" : `上次更新：${formatDate(draft.updatedAt)}`}</p></div>
+                <div><button type="button" onClick={() => persistPost("draft")}>保存草稿</button><button type="button" className="primary-action" onClick={() => persistPost("published")}>发布内容</button></div>
+              </div>
+              <div className="content-type-selector" aria-label="内容类型">
+                {(Object.keys(contentTypeLabels) as ContentType[]).map((contentType) => (
+                  <button
+                    key={contentType}
+                    type="button"
+                    className={draft.contentType === contentType ? "is-active" : ""}
+                    onClick={() => changeDraftContentType(contentType)}
+                  >
+                    <span>{contentTypeShortLabels[contentType]}</span>
+                    <strong>{contentTypeLabels[contentType]}</strong>
+                  </button>
+                ))}
+              </div>
+              <div className="editor-language-tabs" role="tablist" aria-label="编辑语言">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editorLocale === "zh"}
+                  className={editorLocale === "zh" ? "is-active" : ""}
+                  onClick={() => setEditorLocale("zh")}
+                >
+                  <span>ZH</span>
+                  <strong>中文</strong>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editorLocale === "en"}
+                  className={editorLocale === "en" ? "is-active" : ""}
+                  onClick={() => setEditorLocale("en")}
+                >
+                  <span>EN</span>
+                  <strong>English</strong>
+                </button>
+                <p>标题、摘要、标签、正文和图片说明按语言独立保存；发布设置与图片顺序共用。</p>
               </div>
               <div className="editor-layout">
                 <section className="editor-main panel">
-                  <label className="title-field"><span>文章标题</span><input value={draft.title} onChange={(event) => updateDraft("title", event.target.value)} placeholder="输入文章标题" /></label>
+                  <label className="title-field">
+                    <span>{editorLocale === "zh" ? "内容标题" : "English title"}</span>
+                    <input
+                      value={editorCopy.title}
+                      onChange={(event) => updateLocalizedText("title", event.target.value)}
+                      placeholder={editorLocale === "zh" ? `输入${contentTypeLabels[draft.contentType]}标题` : "Enter an English title"}
+                      lang={editorLocale === "zh" ? "zh-CN" : "en"}
+                    />
+                  </label>
+                  {draft.contentType === "collection" && (
+                    <div className="collection-editor-note">
+                      <strong>{editorLocale === "zh" ? "收藏以图库为主体" : "The gallery is the primary collection content"}</strong>
+                      <p>{editorLocale === "zh" ? "正文可以留空；请在右侧维护主视觉、图片顺序、替代文字和图注。" : "English body copy is optional. Add translated alt text and captions for every image on the right."}</p>
+                    </div>
+                  )}
                   <div className="editor-toolbar">
-                    <button type="button" onClick={() => updateDraft("contentMarkdown", `${draft.contentMarkdown}\n## 小标题\n`)}>H2</button>
-                    <button type="button" onClick={() => updateDraft("contentMarkdown", `${draft.contentMarkdown} **重点内容**`)}>B</button>
-                    <button type="button" onClick={() => updateDraft("contentMarkdown", `${draft.contentMarkdown}\n> 引用内容\n`)}>❞</button>
-                    <button type="button" onClick={() => updateDraft("contentMarkdown", `${draft.contentMarkdown}\n\`\`\`\n代码\n\`\`\`\n`)}>&lt;/&gt;</button>
+                    <button type="button" onClick={() => appendLocalizedMarkdown(editorLocale === "zh" ? "\n## 小标题\n" : "\n## Section heading\n")}>H2</button>
+                    <button type="button" onClick={() => appendLocalizedMarkdown(editorLocale === "zh" ? " **重点内容**" : " **Key point**")}>B</button>
+                    <button type="button" onClick={() => appendLocalizedMarkdown(editorLocale === "zh" ? "\n> 引用内容\n" : "\n> Quotation\n")}>❞</button>
+                    <button type="button" onClick={() => appendLocalizedMarkdown(editorLocale === "zh" ? "\n\`\`\`\n代码\n\`\`\`\n" : "\n\`\`\`\ncode\n\`\`\`\n")}>&lt;/&gt;</button>
                     <button type="button" onClick={() => setSection("media")}>图片 ◇</button>
                     <div className="mobile-preview-tabs"><button className={previewMode === "edit" ? "is-active" : ""} onClick={() => setPreviewMode("edit")}>编辑</button><button className={previewMode === "preview" ? "is-active" : ""} onClick={() => setPreviewMode("preview")}>预览</button></div>
                   </div>
                   <div className="editor-split" data-mobile-mode={previewMode}>
-                    <textarea aria-label="Markdown 正文" value={draft.contentMarkdown} onChange={(event) => updateDraft("contentMarkdown", event.target.value)} spellCheck={false} />
-                    <MarkdownPreview markdown={draft.contentMarkdown} />
+                    <textarea
+                      aria-label={draft.contentType === "collection" ? `${editorLocale === "zh" ? "中文" : "英文"}收藏说明（可选）` : `${editorLocale === "zh" ? "中文" : "英文"} Markdown 正文`}
+                      value={editorCopy.contentMarkdown}
+                      onChange={(event) => updateLocalizedText("contentMarkdown", event.target.value)}
+                      spellCheck={editorLocale === "en"}
+                      lang={editorLocale === "zh" ? "zh-CN" : "en"}
+                      placeholder={draft.contentType === "collection" ? (editorLocale === "zh" ? "可选：补充拍摄主题、角色或策展说明。" : "Optional: add notes about the character, shoot, or curation.") : undefined}
+                    />
+                    <MarkdownPreview markdown={editorCopy.contentMarkdown} />
                   </div>
                 </section>
                 <aside className="editor-meta panel">
-                  <h2>发布设置</h2>
-                  <label><span>文章链接</span><input value={draft.slug} onChange={(event) => updateDraft("slug", slugify(event.target.value))} onBlur={() => !draft.slug && updateDraft("slug", slugify(draft.title))} placeholder="article-slug" /></label>
-                  <label><span>摘要</span><textarea value={draft.summary} onChange={(event) => updateDraft("summary", event.target.value)} rows={4} /></label>
+                  <h2>发布设置 <small>语言共用</small></h2>
+                  <label><span>内容链接 · SHARED</span><input value={draft.slug} onChange={(event) => updateDraft("slug", slugify(event.target.value))} onBlur={() => !draft.slug && updateDraft("slug", slugify(draft.title))} placeholder="content-slug" /></label>
+                  <label>
+                    <span>{editorLocale === "zh" ? "摘要" : "English summary"}</span>
+                    <textarea
+                      value={editorCopy.summary}
+                      onChange={(event) => updateLocalizedText("summary", event.target.value)}
+                      rows={4}
+                      lang={editorLocale === "zh" ? "zh-CN" : "en"}
+                    />
+                  </label>
                   <div className="two-fields"><label><span>分类</span><select value={draft.category} onChange={(event) => updateDraft("category", event.target.value)}><option>电子</option><option>超频</option><option>硬件</option><option>游戏与次元</option></select></label><label><span>阅读时间</span><input value={draft.readTime} onChange={(event) => updateDraft("readTime", event.target.value)} /></label></div>
-                  <label><span>标签（用逗号分隔）</span><input value={draft.tags.join(", ")} onChange={(event) => updateDraft("tags", event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean))} /></label>
+                  <label>
+                    <span>{editorLocale === "zh" ? "标签（用逗号分隔）" : "English tags (comma separated)"}</span>
+                    <input
+                      value={editorCopy.tags.join(", ")}
+                      onChange={(event) => updateLocalizedTags(event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean))}
+                      lang={editorLocale === "zh" ? "zh-CN" : "en"}
+                    />
+                  </label>
                   <label><span>内容编号</span><input value={draft.code} onChange={(event) => updateDraft("code", event.target.value)} /></label>
-                  <label><span>定时发布时间</span><input type="datetime-local" value={draft.publishedAt ? draft.publishedAt.slice(0, 16) : ""} onChange={(event) => updateDraft("publishedAt", event.target.value ? new Date(event.target.value).toISOString() : null)} /></label>
+                  <label><span>定时发布时间</span><input type="datetime-local" value={toDateTimeLocal(draft.publishedAt)} onChange={(event) => updateDraft("publishedAt", event.target.value ? new Date(event.target.value).toISOString() : null)} /></label>
                   <button type="button" className="schedule-action" onClick={() => persistPost("scheduled")}>加入发布队列</button>
                   <div className="cover-control">
-                    <span>文章封面</span>
+                    <span>{draft.contentType === "collection" ? "收藏主视觉" : "内容封面"}</span>
                     {draft.coverUrl ? (
                       <>
-                        {/* Dynamic uploads intentionally bypass image optimization. */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={draft.coverUrl} alt="封面预览" />
+                        <button type="button" className="admin-image-preview" onClick={previewCover} aria-label="预览主视觉">
+                          {/* Dynamic uploads intentionally bypass image optimization. */}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={previewMediaUrl(draft.coverUrl)} alt="主视觉预览" />
+                          <span>预览原图</span>
+                        </button>
                         <div><button type="button" onClick={() => setSection("media")}>更换封面</button><button type="button" onClick={() => updateDraft("coverUrl", null)}>移除</button></div>
                       </>
                     ) : (
                       <button type="button" onClick={() => setSection("media")}>＋ 从媒体库选择</button>
+                    )}
+                  </div>
+                  <div className="gallery-control">
+                    <div className="gallery-control-heading">
+                      <span>内容图库</span>
+                      <small>{draft.gallery.length} 张</small>
+                    </div>
+                    {draft.gallery.length ? (
+                      <div className="gallery-editor-list">
+                        {localizedGallery.map((item, index) => (
+                          <article key={`${item.src}-${index}`}>
+                            <button type="button" className="gallery-preview-button" onClick={() => previewGallery(index)} aria-label={`预览第 ${index + 1} 张图片`}>
+                              {/* Dynamic uploads intentionally bypass image optimization. */}
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={previewMediaUrl(item.src)} alt={item.alt} />
+                              <span>{String(index + 1).padStart(2, "0")}</span>
+                            </button>
+                            <div>
+                              <label><span>{editorLocale === "zh" ? "替代文字" : "English alt text"}</span><input value={item.alt} onChange={(event) => updateGalleryItem(index, "alt", event.target.value)} placeholder={editorLocale === "zh" ? "描述画面内容" : "Describe the image in English"} lang={editorLocale === "zh" ? "zh-CN" : "en"} /></label>
+                              <label><span>{editorLocale === "zh" ? "图注" : "English caption"}</span><input value={item.caption} onChange={(event) => updateGalleryItem(index, "caption", event.target.value)} placeholder={editorLocale === "zh" ? "可选：拍摄、参数或说明" : "Optional English caption"} lang={editorLocale === "zh" ? "zh-CN" : "en"} /></label>
+                              {editorLocale === "zh" ? (
+                                <div className="gallery-order-actions">
+                                  <button type="button" disabled={index === 0} onClick={() => moveGalleryItem(index, -1)} aria-label="向前移动">↑</button>
+                                  <button type="button" disabled={index === draft.gallery.length - 1} onClick={() => moveGalleryItem(index, 1)} aria-label="向后移动">↓</button>
+                                  <button type="button" className="danger-action" onClick={() => removeGalleryItem(index)}>移除</button>
+                                </div>
+                              ) : (
+                                <p className="gallery-language-lock">顺序与增删跟随中文主图库</p>
+                              )}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="gallery-empty">还没有图片。前往媒体库，使用“加入图库”。</p>
+                    )}
+                    {editorLocale === "zh" ? (
+                      <button type="button" className="gallery-add-action" onClick={() => setSection("media")}>＋ 从媒体库加入图片</button>
+                    ) : (
+                      <button type="button" className="gallery-add-action" onClick={() => setEditorLocale("zh")}>切换到中文页签管理图片顺序</button>
                     )}
                   </div>
                 </aside>
@@ -642,24 +1294,35 @@ export default function AdminPage() {
 
           {section === "media" && (
             <section className="media-view">
-              <div className="view-heading"><div><span>04 / ASSETS</span><h1>媒体库</h1><p>上传封面与正文图片，点击图片即可插入当前文章。</p></div><button className="primary-action" onClick={() => fileInput.current?.click()}>↑ 上传图片</button></div>
-              <div className="upload-dropzone" onClick={() => fileInput.current?.click()}><span>◇</span><strong>点击选择图片</strong><p>支持 JPEG、PNG、WebP 和 GIF，单张不超过 10 MB</p></div>
+              <div className="view-heading"><div><span>04 / ASSETS</span><h1>媒体库</h1><p>预览原图，或将图片插入正文、设为主视觉、加入当前内容图库。</p></div><button className="primary-action" onClick={() => fileInput.current?.click()}>↑ 上传图片</button></div>
+              <div className="upload-dropzone" onClick={() => fileInput.current?.click()}><span>◇</span><strong>点击选择图片</strong><p>支持 JPEG、PNG、WebP 和 GIF，单张不超过 10 MB<br />上传时自动清除可识别的 EXIF、定位与文本元数据</p></div>
               {assets.length ? (
                 <div className="media-grid">
                   {assets.map((asset) => (
                     <article key={asset.id}>
-                      <div>
+                      <button type="button" className="media-preview-button" onClick={() => previewAsset(asset)} aria-label={`预览 ${asset.filename}`}>
                         {/* Dynamic uploads intentionally bypass image optimization. */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={asset.url} alt={asset.alt} />
-                      </div>
+                        <img src={previewMediaUrl(asset.url)} alt={asset.alt} />
+                        <span>预览原图</span>
+                      </button>
                       <strong>{asset.filename}</strong>
                       <small>{Math.max(1, Math.round(asset.size / 1024))} KB</small>
-                      <div className="media-actions"><button onClick={() => insertImage(asset)}>插入正文</button><button onClick={() => setAsCover(asset)}>设为封面</button><button className="danger-action" onClick={() => deleteAsset(asset)}>删除</button></div>
+                      <div className="media-actions">
+                        <button onClick={() => previewAsset(asset)}>预览</button>
+                        <button onClick={() => insertImage(asset)}>插入正文</button>
+                        <button onClick={() => setAsCover(asset)}>设为主视觉</button>
+                        <button onClick={() => addToGallery(asset)}>加入图库</button>
+                        {asset.builtIn ? (
+                          <span className="built-in-asset-label">内置资料图</span>
+                        ) : (
+                          <button className="danger-action" onClick={() => deleteAsset(asset)}>删除</button>
+                        )}
+                      </div>
                     </article>
                   ))}
                 </div>
-              ) : <div className="empty-media"><span>NO ASSETS</span><p>媒体库还是空的，上传第一张文章图片吧。</p></div>}
+              ) : <div className="empty-media"><span>NO ASSETS</span><p>媒体库还是空的，上传第一张内容图片吧。</p></div>}
             </section>
           )}
 
@@ -673,6 +1336,12 @@ export default function AdminPage() {
       </section>
 
       <input ref={fileInput} className="file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadImage(file); event.currentTarget.value = ""; }} />
+      <ImageLightbox
+        images={lightbox?.images ?? []}
+        activeIndex={lightbox?.index ?? null}
+        onClose={() => setLightbox(null)}
+        onChange={(index) => setLightbox((current) => current ? { ...current, index } : current)}
+      />
       {notice && <div className="admin-toast" role="status">{notice}</div>}
     </main>
   );

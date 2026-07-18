@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { fallbackArticles } from "../../article-data";
+import { loadManagedPublicPosts } from "../../public-posts";
 import ArticleReader from "./article-reader";
 
 type ArticlePageProps = {
@@ -8,19 +9,26 @@ type ArticlePageProps = {
 
 export async function generateMetadata({ params }: ArticlePageProps): Promise<Metadata> {
   const { id } = await params;
-  const article = fallbackArticles.find((item) => item.id === id);
+  const managedPosts = await loadManagedPublicPosts();
+  const candidates = managedPosts ?? fallbackArticles;
+  const matched = candidates.find((item) => item.id === id || item.slug === id);
+  const article = matched?.contentType === "collection" ? undefined : matched;
   const title = article?.title ?? "文章阅读";
   const description = article?.summary ?? "Mozelle Journal 独立文章页面。";
+  const canonicalKey = article?.slug ?? article?.id ?? id;
+  const canonicalUrl = `/articles/${encodeURIComponent(canonicalKey)}`;
 
   return {
     title,
     description,
-    alternates: { canonical: `/articles/${encodeURIComponent(id)}` },
+    alternates: { canonical: canonicalUrl },
+    robots: article ? undefined : { index: false, follow: false },
     openGraph: {
       type: "article",
       title,
       description,
-      url: `/articles/${encodeURIComponent(id)}`,
+      url: canonicalUrl,
+      images: article?.coverUrl ? [{ url: article.coverUrl, alt: article.title }] : undefined,
     },
   };
 }

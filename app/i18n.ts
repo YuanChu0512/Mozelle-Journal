@@ -1,8 +1,15 @@
-import type { Article, Filter } from "./article-data";
+import type {
+  Article,
+  ArticleGalleryItem,
+  ArticleSource,
+  ArticleTranslation,
+  Filter,
+} from "./article-data";
 
 export type Language = "zh" | "en";
 
-type ArticleTranslation = Pick<Article, "title" | "summary" | "tags" | "content">;
+type EnglishFallback = Required<Pick<ArticleTranslation, "title" | "summary" | "tags" | "content">> &
+  Pick<ArticleTranslation, "gallery" | "sources">;
 
 export const categoryLabels: Record<Language, Record<Filter, string>> = {
   zh: {
@@ -29,11 +36,20 @@ export const homeCopy = {
     mainNav: "主导航",
     admin: "管理后台",
     adminLabel: "打开管理后台",
+    searchLabel: "搜索站内内容",
+    searchTitle: "搜索 Mozelle Journal",
+    searchPlaceholder: "搜索文章、实验记录与收藏",
+    searchHint: "输入关键词开始搜索",
+    searchEmpty: "没有找到匹配内容",
+    searchClose: "关闭搜索",
+    searchArticle: "文章",
+    searchLab: "实验记录",
+    searchCollection: "收藏",
     languageLabel: "切换到英文",
     themeDayLabel: "切换到 Mon3tr 黑夜主题",
     themeNightLabel: "切换到伊蕾娜白昼主题",
-    heroDay: ["在旅途与电路之间，", "记录我的热爱。"],
-    heroNight: ["在源石与电路之间，", "点亮每一次探索。"],
+    heroDay: ["把远方写进纸页，", "让热爱沿电路生长。"],
+    heroNight: ["让微光穿过长夜，", "在未知抵达前彼此照亮。"],
     bio: "电子专业学生，记录硬件、超频、游戏、Cosplay 与二次元世界。",
     heroBioSuffix: "把拆解问题的过程，写成可以反复查阅的记录。",
     enterBlog: "进入博客",
@@ -74,11 +90,20 @@ export const homeCopy = {
     mainNav: "Main navigation",
     admin: "Admin",
     adminLabel: "Open admin control panel",
+    searchLabel: "Search this journal",
+    searchTitle: "Search Mozelle Journal",
+    searchPlaceholder: "Search articles, lab notes, and collections",
+    searchHint: "Type a keyword to begin",
+    searchEmpty: "No matching entries",
+    searchClose: "Close search",
+    searchArticle: "Article",
+    searchLab: "Lab Note",
+    searchCollection: "Collection",
     languageLabel: "Switch to Chinese",
     themeDayLabel: "Switch to the Mon3tr night theme",
     themeNightLabel: "Switch to the Elaina daylight theme",
-    heroDay: ["Between journeys and circuits,", "I document what I love."],
-    heroNight: ["Between Originium and circuits,", "I illuminate every discovery."],
+    heroDay: ["I write the distance into pages,", "and let devotion grow along the circuits."],
+    heroNight: ["I send a quiet light through the long night,", "so we meet the unknown illuminated."],
     bio: "An electronics student documenting hardware, overclocking, games, cosplay, and ACG culture.",
     heroBioSuffix: "I turn the process of taking problems apart into notes worth revisiting.",
     enterBlog: "Enter the Journal",
@@ -125,6 +150,8 @@ export const articleCopy = {
     missing: "没有找到这篇文章",
     missingBody: "文章可能尚未发布，或者地址已经发生变化。",
     other: "阅读其他文章",
+    sources: "公开资料",
+    evidence: "图像记录",
   },
   en: {
     homeLabel: "Return to the Mozelle Journal homepage",
@@ -136,59 +163,146 @@ export const articleCopy = {
     missing: "Article not found",
     missingBody: "The article may not be published yet, or its address may have changed.",
     other: "Explore More Articles",
+    sources: "Public References",
+    evidence: "Visual Record",
   },
 } as const;
 
-const englishArticles: Record<string, ArticleTranslation> = {
-  "ddr5-stability": {
-    title: "DDR5 Overclocking: From Voltages and Timings to Stability",
-    summary: "Place VDD, VDDQ, VPP, and memory-controller voltages in one logical model to understand the real limits of frequency, timings, and stability.",
-    tags: ["DDR5", "Voltage", "Timings"],
-    content: [
-      "Memory overclocking is not simply about raising frequency. It is a search for balance among signal integrity, DRAM characteristics, and the memory controller. Frequency determines how many transfers can happen in a given time, while timings determine how many clock cycles each operation must wait.",
-      "Start by controlling variables: choose a target frequency, then tune primary timings, secondary timings, and voltages separately. Change only a few parameters per round and record the test environment, temperature, and error location. That is how random fluctuation can be separated from genuine stability.",
-      "Stability testing cannot stop at a successful boot. Short stress tests are useful for rapid diagnosis, while long mixed workloads better represent daily use. Final settings should also survive cold boots, wake from sleep, and different temperature conditions.",
-    ],
-  },
-  "pmic-rails": {
-    title: "Motherboards and PMICs: Where DDR5 Voltages Come From",
-    summary: "Trace the power path from the motherboard input through the DIMM-mounted PMIC to the voltages actually used by the memory chips and related circuits.",
-    tags: ["PMIC", "Power Delivery", "Motherboard"],
-    content: [
-      "DDR5 moves the main power-management functions onto the memory module. The motherboard supplies the upstream input and control conditions, while the DIMM-mounted PMIC generates the multiple rails used by the memory chips and supporting circuits.",
-      "When analyzing a power rail, the most important step is separating input, output, and reference voltages. Similar names do not imply a common source, and every measurement point must be interpreted alongside the schematic, PMIC model, and board layout.",
-      "This division affects more than fault diagnosis—it also defines the limits of overclocking voltage control. The values exposed in software are ultimately executed through the motherboard’s control logic and the module-side power devices.",
-    ],
-  },
-  "drmos-reading": {
-    title: "Reading a DrMOS: Ratings, Losses, and Temperature",
-    summary: "Move beyond the headline current rating to understand why switching frequency, on-resistance, and cooling conditions matter more than a single number.",
-    tags: ["DrMOS", "VRM", "Thermals"],
-    content: [
-      "A DrMOS integrates the high-side MOSFET, low-side MOSFET, and driver in one package. The maximum current in a data sheet usually assumes specific cooling conditions and should not be treated as the device’s safe continuous current in a real system.",
-      "Actual losses mainly come from conduction, switching, and gate-drive losses. Load, switching frequency, input-to-output voltage difference, and PCB copper all affect junction temperature, so safe operation must be judged from the full set of conditions.",
-      "A useful diagnosis starts with phase count, current per phase, temperature rise, and thermal cycling, then checks the switching node with an oscilloscope instead of drawing conclusions from package temperature alone.",
-    ],
-  },
-  "acg-workspace": {
-    title: "My Cross-Dimensional Workbench: Games, Cosplay, and Electronics",
-    summary: "From desk layout to visual records, bring different interests into one personal space that can be maintained for the long term.",
-    tags: ["ACG", "Cosplay", "Setup"],
-    content: [
-      "A workbench that genuinely fits its owner does not need display-case perfection. It works more like a sustainable system: frequently used gear stays within reach, collections have clear places, and the space can switch quickly between photography and repair work.",
-      "For me, electronics, games, and cosplay are not separate interests. Lighting control, hardware tuning, character styling, and post-production already share many of the same ways of observing and solving problems.",
-      "The goal of organizing a space is not to finish it once. It is to make the room easier to reset after every use, so the next idea does not begin by fighting through unnecessary friction.",
-    ],
-  },
+const englishArticles: Record<string, EnglishFallback> = {};
+
+function nonEmptyText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? value : undefined;
+}
+
+function nonEmptyTextList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length ? items : undefined;
+}
+
+function mergeGalleryTranslation(
+  current: ArticleGalleryItem[] | undefined,
+  live: ArticleGalleryItem[] | undefined,
+  fallback: ArticleGalleryItem[] | undefined,
+): ArticleGalleryItem[] | undefined {
+  if (!current) return undefined;
+  const liveBySrc = new Map((live ?? []).map((item) => [item.src, item]));
+  const fallbackBySrc = new Map((fallback ?? []).map((item) => [item.src, item]));
+  return current.map((item) => {
+    const liveItem = liveBySrc.get(item.src);
+    const fallbackItem = fallbackBySrc.get(item.src);
+    return {
+      ...item,
+      alt:
+        nonEmptyText(liveItem?.alt) ??
+        nonEmptyText(fallbackItem?.alt) ??
+        item.alt,
+      caption:
+        nonEmptyText(liveItem?.caption) ??
+        nonEmptyText(fallbackItem?.caption) ??
+        item.caption,
+    };
+  });
+}
+
+function mergeSourceTranslation(
+  current: ArticleSource[] | undefined,
+  live: ArticleSource[] | undefined,
+  fallback: ArticleSource[] | undefined,
+): ArticleSource[] | undefined {
+  if (!current) {
+    const translatedSources = live ?? fallback;
+    return translatedSources?.map((item) => ({ ...item }));
+  }
+  const liveByHref = new Map((live ?? []).map((item) => [item.href, item]));
+  const fallbackByHref = new Map((fallback ?? []).map((item) => [item.href, item]));
+  return current.map((item) => ({
+    ...item,
+    label:
+      nonEmptyText(liveByHref.get(item.href)?.label) ??
+      nonEmptyText(fallbackByHref.get(item.href)?.label) ??
+      item.label,
+  }));
+}
+
+function markdownToContent(markdown: string): string[] {
+  return markdown
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+export type EnglishEditorTranslation = {
+  title: string;
+  summary: string;
+  tags: string[];
+  contentMarkdown: string;
+  gallery: ArticleGalleryItem[];
+  sources: ArticleSource[];
 };
+
+export function getEnglishEditorTranslation(slug: string): EnglishEditorTranslation {
+  const translation = englishArticles[slug];
+  if (!translation) {
+    return {
+      title: "",
+      summary: "",
+      tags: [],
+      contentMarkdown: "",
+      gallery: [],
+      sources: [],
+    };
+  }
+  return {
+    title: translation.title,
+    summary: translation.summary,
+    tags: [...translation.tags],
+    contentMarkdown: translation.content.join("\n\n"),
+    gallery: (translation.gallery ?? []).map((item) => ({ ...item })),
+    sources: (translation.sources ?? []).map((item) => ({ ...item })),
+  };
+}
 
 export function localizeArticle(article: Article, language: Language): Article {
   if (language === "zh") return article;
-  const translation = englishArticles[article.id];
-  if (!translation) return article;
+
+  const key = article.slug ?? article.id;
+  const live = article.translations?.en;
+  const fallback = englishArticles[key];
+  if (!live && !fallback) return article;
+
+  const liveMarkdown = nonEmptyText(live?.contentMarkdown);
+  const liveContent = nonEmptyTextList(live?.content);
+  const fallbackContent = nonEmptyTextList(fallback?.content);
+  const usesLiveContent = Boolean(liveMarkdown || liveContent);
+  const usesFallbackContent = !usesLiveContent && Boolean(fallbackContent);
+  const selectedContent = liveMarkdown
+    ? liveContent ?? markdownToContent(liveMarkdown)
+    : liveContent ?? fallbackContent ?? article.content;
+  const selectedContentHtml = usesLiveContent
+    ? nonEmptyText(live?.contentHtml)
+    : usesFallbackContent
+      ? undefined
+      : article.contentHtml;
+
   return {
     ...article,
-    ...translation,
-    contentHtml: undefined,
+    title: nonEmptyText(live?.title) ?? nonEmptyText(fallback?.title) ?? article.title,
+    summary: nonEmptyText(live?.summary) ?? nonEmptyText(fallback?.summary) ?? article.summary,
+    tags: nonEmptyTextList(live?.tags) ?? nonEmptyTextList(fallback?.tags) ?? article.tags,
+    content: selectedContent,
+    contentMarkdown: usesLiveContent
+      ? liveMarkdown
+      : usesFallbackContent
+        ? undefined
+        : article.contentMarkdown,
+    contentHtml: selectedContentHtml,
+    gallery: mergeGalleryTranslation(article.gallery, live?.gallery, fallback?.gallery),
+    sources: mergeSourceTranslation(article.sources, live?.sources, fallback?.sources),
   };
 }

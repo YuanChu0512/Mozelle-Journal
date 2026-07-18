@@ -15,6 +15,7 @@ import {
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sanitizeImageMetadata } from "./image-sanitizer.mjs";
 
 const serverDirectory = path.dirname(fileURLToPath(import.meta.url));
 const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "/data/uploads");
@@ -186,13 +187,82 @@ function normalizeTags(value) {
   return [...new Set(value.map((tag) => cleanText(tag, 32)).filter(Boolean))].slice(0, 12);
 }
 
-function normalizeCoverUrl(value) {
-  const coverUrl = cleanText(value, 500);
-  if (!coverUrl) return null;
-  if (coverUrl.startsWith("/uploads/") || coverUrl.startsWith(`${publicOrigin}/uploads/`)) {
-    return coverUrl;
+function normalizeMediaUrl(value) {
+  const mediaUrl = cleanText(value, 500);
+  if (!mediaUrl) return null;
+  const allowedPaths = ["/uploads/", "/articles/"];
+  if (
+    allowedPaths.some((prefix) => mediaUrl.startsWith(prefix)) ||
+    allowedPaths.some((prefix) => mediaUrl.startsWith(`${publicOrigin}${prefix}`))
+  ) {
+    return mediaUrl;
   }
-  throw new Error("文章封面必须来自媒体库。");
+  return null;
+}
+
+function normalizeCoverUrl(value) {
+  if (!cleanText(value, 500)) return null;
+  const coverUrl = normalizeMediaUrl(value);
+  if (coverUrl) return coverUrl;
+  throw new Error("内容主视觉必须来自媒体库或站内资料图。");
+}
+
+function normalizeGallery(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 24).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const src = normalizeMediaUrl(item.src);
+    if (!src) return [];
+    return [{
+      src,
+      alt: cleanText(item.alt, 180),
+      caption: cleanText(item.caption, 500),
+    }];
+  });
+}
+
+function normalizeTranslationSources(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 48).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const href = cleanText(item.href, 1_000);
+    let url;
+    try {
+      url = new URL(href);
+    } catch {
+      return [];
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:") return [];
+    return [{ href, label: cleanText(item.label, 240) }];
+  });
+}
+
+function normalizeTranslations(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const source = value.en;
+  if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+
+  const en = {};
+  if (Object.hasOwn(source, "title")) en.title = cleanText(source.title, 180);
+  if (Object.hasOwn(source, "summary")) en.summary = cleanText(source.summary, 600);
+  if (Object.hasOwn(source, "tags")) en.tags = normalizeTags(source.tags);
+  if (Object.hasOwn(source, "contentMarkdown")) {
+    en.contentMarkdown = typeof source.contentMarkdown === "string"
+      ? source.contentMarkdown.slice(0, 1_000_000)
+      : "";
+  } else if (Object.hasOwn(source, "content")) {
+    en.contentMarkdown = Array.isArray(source.content)
+      ? source.content
+          .filter((paragraph) => typeof paragraph === "string")
+          .join("\n\n")
+          .slice(0, 1_000_000)
+      : "";
+  }
+  if (Object.hasOwn(source, "gallery")) en.gallery = normalizeGallery(source.gallery);
+  if (Object.hasOwn(source, "sources")) {
+    en.sources = normalizeTranslationSources(source.sources);
+  }
+  return Object.keys(en).length ? { en } : {};
 }
 
 function normalizePostPayload(body = {}) {
@@ -202,25 +272,32 @@ function normalizePostPayload(body = {}) {
     ? body.contentMarkdown.slice(0, 1_000_000)
     : "";
   const allowedStatuses = new Set(["draft", "published", "scheduled"]);
+  const allowedContentTypes = new Set(["article", "lab", "collection"]);
   const status = allowedStatuses.has(body.status) ? body.status : "draft";
+  const contentType = allowedContentTypes.has(body.contentType)
+    ? body.contentType
+    : "article";
   const publishedAt = body.publishedAt ? new Date(body.publishedAt) : null;
 
-  if (!title) throw new Error("文章标题不能为空。");
-  if (!slug) throw new Error("文章链接只能包含中文、英文字母、数字和连字符。");
+  if (!title) throw new Error("内容标题不能为空。");
+  if (!slug) throw new Error("内容链接只能包含中文、英文字母、数字和连字符。");
   if (status === "scheduled" && (!publishedAt || Number.isNaN(publishedAt.valueOf()))) {
     throw new Error("定时发布必须填写有效时间。");
   }
 
   return {
+    contentType,
     title,
     slug,
     summary: cleanText(body.summary, 600),
     category: cleanText(body.category, 40) || "电子",
     tags: normalizeTags(body.tags),
     code: cleanText(body.code, 30) || "EE / NEW",
-    readTime: cleanText(body.readTime, 30) || "5 min",
+    readTime: cleanText(body.readTime, 30) || (contentType === "collection" ? "" : "5 min"),
     contentMarkdown,
     coverUrl: normalizeCoverUrl(body.coverUrl),
+    gallery: normalizeGallery(body.gallery),
+    translations: normalizeTranslations(body.translations),
     status,
     publishedAt:
       status === "published"
@@ -236,6 +313,7 @@ function normalizePostPayload(body = {}) {
 function mapPost(row) {
   return {
     id: row.id,
+    contentType: row.content_type || "article",
     title: row.title,
     slug: row.slug,
     summary: row.summary,
@@ -245,6 +323,8 @@ function mapPost(row) {
     readTime: row.read_time,
     contentMarkdown: row.content_markdown,
     coverUrl: row.cover_url,
+    gallery: Array.isArray(row.gallery) ? row.gallery : [],
+    translations: normalizeTranslations(row.translations),
     status: row.status,
     publishedAt: row.published_at?.toISOString?.() ?? row.published_at ?? null,
     createdAt: row.created_at?.toISOString?.() ?? row.created_at,
@@ -281,7 +361,7 @@ function renderMarkdown(markdown) {
     exclusiveFilter(frame) {
       if (frame.tag === "img") {
         const src = frame.attribs?.src || "";
-        return !(src.startsWith("/uploads/") || src.startsWith(`${publicOrigin}/uploads/`));
+        return !normalizeMediaUrl(src);
       }
       return false;
     },
@@ -302,8 +382,23 @@ function markdownParagraphs(markdown) {
 
 function mapPublicPost(row) {
   const post = mapPost(row);
+  const translations = post.translations?.en
+    ? {
+        en: {
+          ...post.translations.en,
+          ...(post.translations.en.contentMarkdown
+            ? {
+                content: markdownParagraphs(post.translations.en.contentMarkdown),
+                contentHtml: renderMarkdown(post.translations.en.contentMarkdown),
+              }
+            : {}),
+        },
+      }
+    : {};
   return {
     id: post.id,
+    slug: post.slug,
+    contentType: post.contentType,
     category: post.category,
     code: post.code,
     date: (post.publishedAt || post.updatedAt).slice(0, 10).replace(/-/g, "."),
@@ -314,6 +409,8 @@ function mapPublicPost(row) {
     content: markdownParagraphs(post.contentMarkdown),
     contentHtml: renderMarkdown(post.contentMarkdown),
     coverUrl: post.coverUrl,
+    gallery: post.gallery,
+    translations,
   };
 }
 
@@ -347,63 +444,126 @@ function detectImage(buffer) {
 }
 
 async function seedPosts() {
-  const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM posts");
-  if (rows[0].count > 0) return;
+  const migrationKey = "content-seed-v4-student-voice";
+  const migration = await pool.query(
+    "SELECT 1 FROM schema_migrations WHERE migration_key = $1",
+    [migrationKey],
+  );
+  if (migration.rowCount) return;
+  const previousV3Migration = await pool.query(
+    "SELECT applied_at FROM schema_migrations WHERE migration_key = $1",
+    ["content-seed-v3-expanded-library"],
+  );
+  const previousV2Migration = await pool.query(
+    "SELECT applied_at FROM schema_migrations WHERE migration_key = $1",
+    ["content-seed-v2-structured-library"],
+  );
+  const previousV3SeedAppliedAt = previousV3Migration.rows[0]?.applied_at
+    ? new Date(previousV3Migration.rows[0].applied_at)
+    : null;
+  const previousV2SeedAppliedAt = previousV2Migration.rows[0]?.applied_at
+    ? new Date(previousV2Migration.rows[0].applied_at)
+    : null;
+  const legacyV2SeedSlugs = new Set([
+    "ddr5-stability",
+    "pmic-rails",
+    "drmos-reading",
+    "acg-workspace",
+  ]);
+  const previousV3SeedFingerprints = new Map([
+    ["boe-cell-cut-process", "21db73d9ec5036931304ba55dc9a3fe5550eb573fbcae65d7cd7d0484bdc45a6"],
+    ["sparkle-cosplay-record", "988dac4e12d1711e4c23d08e89f3e8dcd3fd3135f5b433e94d48b450f8e3061a"],
+    ["ddr5-96gb-8400", "acc6e46ecc3092f206d1038ec3d14a05c2155875198b754a7f7d06d8be83dfc8"],
+    ["rtx5090-time-spy-extreme-hof", "3c853378f1999eb11696577cdf3229bb459ee7d4e8e1477a3cc6ed838dbd7607"],
+    ["rtx5090-laptop-shunt-mod", "860ab4e7e3b01a2e52585ad7eac0277ac74d9178dbc6a1f67882428185d41e2f"],
+    ["ddr5-stability", "e4254267703daca1bf11ce693663422c36547b8adcb342bce1b50d360e33a5d9"],
+    ["pmic-rails", "6800d1f34377c6a5ca79facbee7a73322e532a56f33e6df2ae2d5934b24938e8"],
+    ["drmos-reading", "979b73d5fe1826c0fcb2b08a3bab53e691e96ad8af7ede58f48b25bf568433c0"],
+    ["acg-workspace", "0db9969a3fd27209c294137751519b19ecedb9d18bf74f0ee43fabcf5a4f89f3"],
+  ]);
+  const contentFingerprint = ({ title, summary, readTime, content }) => createHash("sha256")
+    .update(JSON.stringify([title, summary, readTime ?? "", content]))
+    .digest("hex");
 
-  const seeds = [
-    {
-      slug: "ddr5-stability",
-      title: "DDR5 超频：从电压、时序到稳定性",
-      summary: "把 VDD、VDDQ、VPP 与内存控制器电压放进同一张逻辑图，理解频率、时序和稳定性的真实边界。",
-      category: "超频",
-      tags: ["DDR5", "电压", "时序"],
-      code: "OC / 001",
-      readTime: "12 min",
-      content: "## 从变量控制开始\n\n内存超频不是单纯提高频率，而是在信号完整性、颗粒特性与内存控制器能力之间寻找平衡。\n\n调试时应先固定变量：确定目标频率，再分别处理主时序、次级时序与电压。\n\n> 稳定性测试不能只看是否能够开机，还要验证冷启动、休眠唤醒和不同温度条件。",
-    },
-    {
-      slug: "pmic-rails",
-      title: "主板与 PMIC：DDR5 电压究竟从哪里来",
-      summary: "沿着供电路径拆解主板输入、DIMM 上的 PMIC 以及颗粒端电压。",
-      category: "电子",
-      tags: ["PMIC", "供电", "主板"],
-      code: "EE / 014",
-      readTime: "8 min",
-      content: "## 供电路径\n\nDDR5 将主要电源管理功能移到内存模组上。主板负责上游输入，DIMM 上的 PMIC 再生成颗粒与相关电路实际使用的多路电压。",
-    },
-    {
-      slug: "drmos-reading",
-      title: "看懂一颗 DrMOS：参数、损耗与温度",
-      summary: "从额定电流走向真实工况，理解开关频率、导通电阻和散热条件。",
-      category: "硬件",
-      tags: ["DrMOS", "VRM", "散热"],
-      code: "HW / 009",
-      readTime: "10 min",
-      content: "## 不只看额定电流\n\n真实损耗主要来自导通损耗、开关损耗与驱动损耗。判断安全性需要把负载、开关频率和 PCB 散热条件一起考虑。",
-    },
-    {
-      slug: "acg-workspace",
-      title: "我的次元工作台：游戏、Cos 与电子设备",
-      summary: "从桌面布置到影像记录，把不同兴趣放进同一个能够长期维护的个人空间。",
-      category: "游戏与次元",
-      tags: ["ACG", "Cosplay", "Setup"],
-      code: "ACG / 006",
-      readTime: "6 min",
-      content: "## 一个可持续的个人空间\n\n电子、游戏和 Cosplay 并不是相互分离的兴趣。灯光控制、设备调试、角色造型与影像后期共享着许多观察和解决问题的方法。",
-    },
-  ];
+  const seeds = [];
 
-  for (const seed of seeds) {
-    await pool.query(
-      `INSERT INTO posts
-        (id, slug, title, summary, category, tags, code, read_time, content_markdown, status, published_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, 'published', NOW())
-       ON CONFLICT (slug) DO NOTHING`,
-      [
-        randomUUID(), seed.slug, seed.title, seed.summary, seed.category,
-        JSON.stringify(seed.tags), seed.code, seed.readTime, seed.content,
-      ],
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const seed of seeds) {
+      const existing = await client.query(
+        `SELECT title, summary, read_time, content_markdown, code, created_at, updated_at
+         FROM posts WHERE slug = $1 FOR UPDATE`,
+        [seed.slug],
+      );
+      if (!existing.rowCount) {
+        if (previousV3SeedAppliedAt) {
+          // Every v3 slug was managed. If one is now missing, it was deleted deliberately.
+          continue;
+        }
+        if (previousV2SeedAppliedAt && legacyV2SeedSlugs.has(seed.slug)) {
+          // A missing v2 seed was deliberately deleted in the console; do not resurrect it.
+          continue;
+        }
+      }
+      if (existing.rowCount) {
+        const row = existing.rows[0];
+        const createdAt = new Date(row.created_at).valueOf();
+        const updatedAt = new Date(row.updated_at).valueOf();
+        const currentV3Fingerprint = contentFingerprint({
+          title: row.title,
+          summary: row.summary,
+          readTime: row.read_time,
+          content: row.content_markdown,
+        });
+        const untouchedV3Seed =
+          previousV3SeedAppliedAt &&
+          currentV3Fingerprint === previousV3SeedFingerprints.get(seed.slug);
+        const untouchedLegacySeed =
+          !previousV3SeedAppliedAt &&
+          !previousV2SeedAppliedAt &&
+          row.code === seed.code &&
+          Math.abs(updatedAt - createdAt) < 1_000;
+        const untouchedV2Seed =
+          !previousV3SeedAppliedAt &&
+          previousV2SeedAppliedAt &&
+          legacyV2SeedSlugs.has(seed.slug) &&
+          updatedAt <= previousV2SeedAppliedAt.valueOf();
+        if (!untouchedV3Seed && !untouchedLegacySeed && !untouchedV2Seed) {
+          // Preserve custom posts and any content edited through the console.
+          continue;
+        }
+      }
+      await client.query(
+        `INSERT INTO posts
+          (id, slug, content_type, title, summary, category, tags, code, read_time,
+           content_markdown, cover_url, gallery, translations, status, published_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13::jsonb, 'published', $14)
+         ON CONFLICT (slug) DO UPDATE SET
+           title = EXCLUDED.title,
+           summary = EXCLUDED.summary,
+           read_time = EXCLUDED.read_time,
+           content_markdown = EXCLUDED.content_markdown,
+           updated_at = NOW()`,
+        [
+          randomUUID(), seed.slug, seed.contentType, seed.title, seed.summary,
+          seed.category, JSON.stringify(seed.tags), seed.code, seed.readTime,
+          seed.content, seed.coverUrl ?? null, JSON.stringify(seed.gallery ?? []),
+          JSON.stringify(seed.translations ?? {}),
+          seed.publishedAt ?? new Date().toISOString(),
+        ],
+      );
+    }
+    await client.query(
+      "INSERT INTO schema_migrations (migration_key) VALUES ($1)",
+      [migrationKey],
     );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 }
 
@@ -624,14 +784,15 @@ app.post(
     try {
       const { rows } = await pool.query(
         `INSERT INTO posts
-          (id, slug, title, summary, category, tags, code, read_time, content_markdown,
-           cover_url, status, published_at)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12)
+          (id, slug, content_type, title, summary, category, tags, code, read_time,
+           content_markdown, cover_url, gallery, translations, status, published_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $15)
          RETURNING *`,
         [
-          id, post.slug, post.title, post.summary, post.category, JSON.stringify(post.tags),
-          post.code, post.readTime, post.contentMarkdown, post.coverUrl, post.status,
-          post.publishedAt,
+          id, post.slug, post.contentType, post.title, post.summary, post.category,
+          JSON.stringify(post.tags), post.code, post.readTime, post.contentMarkdown,
+          post.coverUrl, JSON.stringify(post.gallery), JSON.stringify(post.translations),
+          post.status, post.publishedAt,
         ],
       );
       await pool.query(
@@ -641,7 +802,7 @@ app.post(
       return reply.code(201).send({ post: mapPost(rows[0]) });
     } catch (error) {
       if (error.code === "23505") {
-        return reply.code(409).send({ error: "SLUG_EXISTS", message: "文章链接已经被使用。" });
+        return reply.code(409).send({ error: "SLUG_EXISTS", message: "内容链接已经被使用。" });
       }
       throw error;
     }
@@ -664,7 +825,12 @@ app.put(
       const current = await client.query("SELECT * FROM posts WHERE id = $1 FOR UPDATE", [request.params.id]);
       if (!current.rows.length) {
         await client.query("ROLLBACK");
-        return reply.code(404).send({ error: "NOT_FOUND", message: "文章不存在。" });
+        return reply.code(404).send({ error: "NOT_FOUND", message: "内容不存在。" });
+      }
+      if (!Object.hasOwn(request.body || {}, "translations")) {
+        // Older console builds do not send this field. Preserve existing English
+        // content until that client explicitly submits a translations payload.
+        post.translations = normalizeTranslations(current.rows[0].translations);
       }
       await client.query(
         "INSERT INTO revisions (id, post_id, snapshot) VALUES ($1, $2, $3::jsonb)",
@@ -672,14 +838,16 @@ app.put(
       );
       const result = await client.query(
         `UPDATE posts SET
-          slug = $2, title = $3, summary = $4, category = $5, tags = $6::jsonb,
-          code = $7, read_time = $8, content_markdown = $9, cover_url = $10,
-          status = $11, published_at = $12, updated_at = NOW()
+          slug = $2, content_type = $3, title = $4, summary = $5, category = $6,
+          tags = $7::jsonb, code = $8, read_time = $9, content_markdown = $10,
+          cover_url = $11, gallery = $12::jsonb, translations = $13::jsonb,
+          status = $14, published_at = $15, updated_at = NOW()
          WHERE id = $1 RETURNING *`,
         [
-          request.params.id, post.slug, post.title, post.summary, post.category,
-          JSON.stringify(post.tags), post.code, post.readTime, post.contentMarkdown,
-          post.coverUrl, post.status, post.publishedAt,
+          request.params.id, post.slug, post.contentType, post.title, post.summary,
+          post.category, JSON.stringify(post.tags), post.code, post.readTime,
+          post.contentMarkdown, post.coverUrl, JSON.stringify(post.gallery),
+          JSON.stringify(post.translations), post.status, post.publishedAt,
         ],
       );
       await client.query("COMMIT");
@@ -687,7 +855,7 @@ app.put(
     } catch (error) {
       await client.query("ROLLBACK");
       if (error.code === "23505") {
-        return reply.code(409).send({ error: "SLUG_EXISTS", message: "文章链接已经被使用。" });
+        return reply.code(409).send({ error: "SLUG_EXISTS", message: "内容链接已经被使用。" });
       }
       throw error;
     } finally {
@@ -732,16 +900,30 @@ app.post(
       [request.params.revisionId, request.params.id],
     );
     if (!revision.rows.length) return reply.code(404).send({ error: "NOT_FOUND" });
-    const snapshot = normalizePostPayload(revision.rows[0].snapshot);
+    const current = await pool.query(
+      "SELECT content_type, gallery, translations FROM posts WHERE id = $1",
+      [request.params.id],
+    );
+    if (!current.rows.length) return reply.code(404).send({ error: "NOT_FOUND" });
+    const snapshotPayload = revision.rows[0].snapshot;
+    const snapshot = normalizePostPayload({
+      ...snapshotPayload,
+      contentType: snapshotPayload.contentType ?? current.rows[0].content_type,
+      gallery: snapshotPayload.gallery ?? current.rows[0].gallery,
+      translations: snapshotPayload.translations ?? current.rows[0].translations,
+    });
     const result = await pool.query(
-      `UPDATE posts SET slug = $2, title = $3, summary = $4, category = $5,
-       tags = $6::jsonb, code = $7, read_time = $8, content_markdown = $9,
-       cover_url = $10, status = $11, published_at = $12, updated_at = NOW()
+      `UPDATE posts SET slug = $2, content_type = $3, title = $4, summary = $5,
+       category = $6, tags = $7::jsonb, code = $8, read_time = $9,
+       content_markdown = $10, cover_url = $11, gallery = $12::jsonb,
+       translations = $13::jsonb, status = $14, published_at = $15, updated_at = NOW()
        WHERE id = $1 RETURNING *`,
       [
-        request.params.id, snapshot.slug, snapshot.title, snapshot.summary, snapshot.category,
-        JSON.stringify(snapshot.tags), snapshot.code, snapshot.readTime, snapshot.contentMarkdown,
-        snapshot.coverUrl, snapshot.status, snapshot.publishedAt,
+        request.params.id, snapshot.slug, snapshot.contentType, snapshot.title,
+        snapshot.summary, snapshot.category, JSON.stringify(snapshot.tags), snapshot.code,
+        snapshot.readTime, snapshot.contentMarkdown, snapshot.coverUrl,
+        JSON.stringify(snapshot.gallery), JSON.stringify(snapshot.translations),
+        snapshot.status, snapshot.publishedAt,
       ],
     );
     return { post: mapPost(result.rows[0]) };
@@ -776,11 +958,17 @@ app.post(
     if (!detected) {
       return reply.code(415).send({ error: "UNSUPPORTED_IMAGE", message: "仅支持 JPEG、PNG、WebP 和 GIF。" });
     }
-    const hash = createHash("sha256").update(filePart.buffer).digest("hex").slice(0, 16);
+    let sanitizedBuffer;
+    try {
+      sanitizedBuffer = sanitizeImageMetadata(filePart.buffer, detected.mime);
+    } catch {
+      return reply.code(422).send({ error: "INVALID_IMAGE", message: "图片结构不完整或已损坏。" });
+    }
+    const hash = createHash("sha256").update(sanitizedBuffer).digest("hex").slice(0, 16);
     const objectKey = `${new Date().toISOString().slice(0, 7)}/${randomUUID()}-${hash}.${detected.extension}`;
     const destination = path.join(uploadDirectory, objectKey);
     await mkdir(path.dirname(destination), { recursive: true });
-    await writeFile(destination, filePart.buffer, { flag: "wx" });
+    await writeFile(destination, sanitizedBuffer, { flag: "wx" });
     const id = randomUUID();
     const publicUrl = `/uploads/${objectKey}`;
     try {
@@ -790,7 +978,7 @@ app.post(
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
         [
           id, objectKey, cleanText(filePart.filename, 240) || `${id}.${detected.extension}`,
-          detected.mime, filePart.buffer.length, alt, publicUrl,
+          detected.mime, sanitizedBuffer.length, alt, publicUrl,
         ],
       );
       return reply.code(201).send({ asset: mapAsset(rows[0]) });
@@ -809,11 +997,11 @@ app.delete(
     if (!asset.rows.length) return reply.code(404).send({ error: "NOT_FOUND" });
     const row = asset.rows[0];
     const usage = await pool.query(
-      "SELECT 1 FROM posts WHERE cover_url = $1 OR content_markdown LIKE $2 LIMIT 1",
+      "SELECT 1 FROM posts WHERE cover_url = $1 OR content_markdown LIKE $2 OR gallery::text LIKE $2 OR translations::text LIKE $2 LIMIT 1",
       [row.public_url, `%${row.public_url}%`],
     );
     if (usage.rows.length) {
-      return reply.code(409).send({ error: "ASSET_IN_USE", message: "图片仍被文章引用，无法删除。" });
+      return reply.code(409).send({ error: "ASSET_IN_USE", message: "图片仍被内容引用，无法删除。" });
     }
     await pool.query("DELETE FROM assets WHERE id = $1", [request.params.id]);
     await unlink(path.join(uploadDirectory, row.object_key)).catch((error) => {

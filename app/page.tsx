@@ -1,12 +1,15 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   fallbackArticles,
   filters,
@@ -16,6 +19,9 @@ import {
 import AmbientEffects from "./ambient-effects";
 import { categoryLabels, homeCopy, localizeArticle } from "./i18n";
 import { LanguageReassembly, useLanguageSwitcher } from "./language-switcher";
+import { LiquidGlassLens, useLiquidGlassTracking } from "./liquid-glass";
+import ImageLightbox, { type LightboxImage } from "./image-lightbox";
+import { previewMediaUrl } from "./media-utils";
 import {
   ThemeTransition,
   useThemeTransition,
@@ -42,43 +48,48 @@ const fallbackSettings: PublicSettings = {
   bio: "电子专业学生，记录硬件、超频、游戏、Cosplay 与二次元世界。",
 };
 
-const labNotes = [
-  {
-    index: "01",
-    value: "DDR5 / AM5",
-  },
-  {
-    index: "02",
-    value: "POWER / PCB",
-  },
-  {
-    index: "03",
-    value: "TFT-LCD / CUT",
-  },
+const collectionVisuals = [
+  "collection-cos",
+  "collection-game",
+  "collection-elaina",
+  "collection-mon3tr",
 ];
 
-const collections = [
-  {
-    number: "01",
-    subtitle: "ELAINA / DAYLIGHT",
-    className: "collection-elaina",
-  },
-  {
-    number: "02",
-    subtitle: "MON3TR / NIGHTFALL",
-    className: "collection-mon3tr",
-  },
-  {
-    number: "03",
-    subtitle: "COS / FRAME",
-    className: "collection-cos",
-  },
-  {
-    number: "04",
-    subtitle: "GAME / ARCHIVE",
-    className: "collection-game",
-  },
-];
+function articleRouteKey(article: Article) {
+  return article.slug ?? article.id;
+}
+
+function articlePreviewImages(article: Article): LightboxImage[] {
+  const images: LightboxImage[] = [];
+  const seen = new Set<string>();
+  const append = (image: LightboxImage) => {
+    if (!image.src || seen.has(image.src)) return;
+    seen.add(image.src);
+    images.push(image);
+  };
+
+  if (article.coverUrl) {
+    append({ src: article.coverUrl, alt: article.title, caption: article.summary });
+  }
+  article.gallery?.forEach((image) => append(image));
+  return images;
+}
+
+type SearchEntry = {
+  id: string;
+  type: "article" | "lab" | "collection";
+  eyebrow: string;
+  title: string;
+  description: string;
+  href: string;
+  keywords: string;
+};
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => {
+    finished: Promise<void>;
+  };
+};
 
 function DimensionScrollScene({
   code,
@@ -110,6 +121,14 @@ export default function Home() {
   const [articles, setArticles] = useState<Article[]>(fallbackArticles);
   const [siteSettings, setSiteSettings] = useState<PublicSettings>(fallbackSettings);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+  const [preview, setPreview] = useState<{
+    images: LightboxImage[];
+    activeIndex: number;
+  } | null>(null);
+  const [articleTransitionSource, setArticleTransitionSource] = useState<string | null>(null);
   const [nightVisualReady, setNightVisualReady] = useState(false);
   const [nightMotionPhase, setNightMotionPhase] = useState(0);
   const { transitioning, transitionTarget, toggleTheme } = useThemeTransition(
@@ -136,6 +155,8 @@ export default function Home() {
   } | null>(null);
   const heroSection = useRef<HTMLElement>(null);
   const heroVisual = useRef<HTMLDivElement>(null);
+  const siteHeader = useRef<HTMLElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const rhodesParticleCanvas = useRef<HTMLCanvasElement>(null);
   const wireSphereCanvas = useRef<HTMLCanvasElement>(null);
   const sectionJumpTimer = useRef<number | null>(null);
@@ -144,13 +165,87 @@ export default function Home() {
   const sphereMotionReady =
     theme === "night" && !transitioning && nightMotionPhase >= 2;
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+  useLiquidGlassTracking();
+
+  const setSearchVisibility = useCallback((open: boolean) => {
+    const root = document.documentElement;
+    const transitionDocument = document as ViewTransitionDocument;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (
+      reducedMotion ||
+      !transitionDocument.startViewTransition ||
+      root.classList.contains("is-spotlight-transitioning")
+    ) {
+      setSearchOpen(open);
+      return;
+    }
+
+    root.classList.add("is-spotlight-transitioning");
+    try {
+      const transition = transitionDocument.startViewTransition(() => {
+        flushSync(() => setSearchOpen(open));
+      });
+      transition.finished.finally(() => {
+        root.classList.remove("is-spotlight-transitioning");
+      });
+    } catch {
+      root.classList.remove("is-spotlight-transitioning");
+      setSearchOpen(open);
+    }
   }, []);
+
+  useEffect(() => {
+    const handleGlobalShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setMenuOpen(false);
+        setSelectedSearchIndex(0);
+        setSearchVisibility(!searchOpen);
+        return;
+      }
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        if (searchOpen) setSearchVisibility(false);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalShortcut);
+    return () => window.removeEventListener("keydown", handleGlobalShortcut);
+  }, [searchOpen, setSearchVisibility]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = "hidden";
+    const focusFrame = window.requestAnimationFrame(() => searchInput.current?.focus());
+    const trapFocus = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const panel = document.querySelector<HTMLElement>(".spotlight-panel");
+      if (!panel) return;
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", trapFocus);
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
+    };
+  }, [searchOpen]);
 
   useEffect(() => {
     if (theme !== "night" || transitioning) return;
@@ -217,20 +312,49 @@ export default function Home() {
     const sections = Array.from(
       document.querySelectorAll<HTMLElement>("[data-section]"),
     );
-    if (!("IntersectionObserver" in window)) return;
+    if (!sections.length) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((first, second) => second.intersectionRatio - first.intersectionRatio);
-        const section = visible[0]?.target as HTMLElement | undefined;
-        if (section?.dataset.section) setActiveSection(section.dataset.section);
-      },
-      { rootMargin: "-22% 0px -66% 0px", threshold: [0, 0.1] },
-    );
-    sections.forEach((section) => observer.observe(section));
-    return () => observer.disconnect();
+    let frame = 0;
+    const updateActiveSection = () => {
+      frame = 0;
+      const activationLine = Math.max(
+        104,
+        Math.min(window.innerHeight * 0.32, 340),
+      );
+      let nextSection = sections[0]?.dataset.section ?? "top";
+
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top > activationLine) break;
+        nextSection = section.dataset.section ?? nextSection;
+      }
+
+      const root = document.documentElement;
+      if (window.scrollY + window.innerHeight >= root.scrollHeight - 2) {
+        nextSection = sections.at(-1)?.dataset.section ?? nextSection;
+      }
+
+      setActiveSection((current) =>
+        current === nextSection ? current : nextSection,
+      );
+    };
+    const requestUpdate = () => {
+      if (!frame) frame = window.requestAnimationFrame(updateActiveSection);
+    };
+    const resizeObserver = "ResizeObserver" in window
+      ? new ResizeObserver(requestUpdate)
+      : null;
+
+    sections.forEach((section) => resizeObserver?.observe(section));
+    updateActiveSection();
+    window.addEventListener("scroll", requestUpdate, { passive: true });
+    window.addEventListener("resize", requestUpdate, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", requestUpdate);
+      window.removeEventListener("resize", requestUpdate);
+      resizeObserver?.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   useEffect(
@@ -244,7 +368,10 @@ export default function Home() {
     if (CSS.supports("animation-timeline: scroll()")) return;
 
     const progress = document.querySelector<HTMLElement>(".page-scroll-progress");
-    if (!progress) return;
+    const journeyProgress = document.querySelector<HTMLElement>(
+      ".journey-progress-fill",
+    );
+    if (!progress && !journeyProgress) return;
     let frame = 0;
 
     const updateProgress = () => {
@@ -254,7 +381,8 @@ export default function Home() {
         document.documentElement.scrollHeight - window.innerHeight,
       );
       const value = Math.min(1, Math.max(0, window.scrollY / scrollable));
-      progress.style.transform = `scaleX(${value})`;
+      if (progress) progress.style.transform = `scaleX(${value})`;
+      if (journeyProgress) journeyProgress.style.transform = `scaleY(${value})`;
     };
     const requestUpdate = () => {
       if (frame) return;
@@ -314,7 +442,7 @@ export default function Home() {
         return response.json() as Promise<{ posts?: Article[] }>;
       })
       .then((payload) => {
-        if (payload.posts?.length) setArticles(payload.posts);
+        setArticles(payload.posts ?? []);
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -422,22 +550,72 @@ export default function Home() {
     let pointerEngaged = false;
     const pointerTarget = { x: 0, y: 0 };
     const pointerCurrent = { x: 0, y: 0 };
+    let bearingTarget = -90;
+    let bearingCurrent = -90;
+    let activeRuneSector = Number.NaN;
+    const runeNodes = Array.from(
+      visual.querySelectorAll<SVGElement>(
+        ".magic-seal, .magic-rune-icon, .magic-rune-small",
+      ),
+    );
+    const runeAngles = [
+      -90, 0, 90, 180,
+      -90, 0, 90, 180,
+      -45, 45, 135, -135,
+    ];
+
+    const shortestAngle = (from: number, to: number) =>
+      ((((to - from + 180) % 360) + 360) % 360) - 180;
+
+    const updateRuneWake = (bearing: number) => {
+      const nextSector = ((Math.round(bearing / 45) % 8) + 8) % 8;
+      if (nextSector === activeRuneSector) return;
+      activeRuneSector = nextSector;
+
+      runeNodes.forEach((node, index) => {
+        const nodeAngle = runeAngles[index] ?? 0;
+        const distance = Math.abs(shortestAngle(bearing, nodeAngle));
+        node.classList.toggle("is-rune-awake", distance <= 23);
+        node.classList.toggle(
+          "is-rune-near",
+          distance > 23 && distance <= 68,
+        );
+      });
+    };
+
+    updateRuneWake(bearingTarget);
 
     const renderParallax = () => {
       parallaxFrame = 0;
-      const smoothing = pointerEngaged ? 0.115 : 0.085;
+      const smoothing = pointerEngaged ? 0.14 : 0.075;
       pointerCurrent.x += (pointerTarget.x - pointerCurrent.x) * smoothing;
       pointerCurrent.y += (pointerTarget.y - pointerCurrent.y) * smoothing;
+      bearingCurrent +=
+        shortestAngle(bearingCurrent, bearingTarget) *
+        (pointerEngaged ? 0.18 : 0.1);
 
       const x = pointerCurrent.x;
       const y = pointerCurrent.y;
       if (theme === "day") {
-        visual.style.setProperty("--sigil-shift-x", `${x * 9}px`);
-        visual.style.setProperty("--sigil-shift-y", `${y * 7}px`);
-        visual.style.setProperty("--sigil-shift-x-rev", `${x * -6}px`);
-        visual.style.setProperty("--sigil-shift-y-rev", `${y * -5}px`);
-        visual.style.setProperty("--sigil-rotate", `${x * 2.4}deg`);
-        visual.style.setProperty("--sigil-rotate-rev", `${y * -2.2}deg`);
+        const reach = Math.min(1, Math.hypot(x, y));
+        visual.style.setProperty("--sigil-tilt-x", `${y * -2.05}deg`);
+        visual.style.setProperty("--sigil-tilt-y", `${x * 2.45}deg`);
+        visual.style.setProperty(
+          "--sigil-phase-outer",
+          `${x * 3.2 + y * 0.8}deg`,
+        );
+        visual.style.setProperty(
+          "--sigil-phase-inner",
+          `${x * -1.45 + y * 1.65}deg`,
+        );
+        visual.style.setProperty(
+          "--sigil-core-scale",
+          `${1 + reach * 0.008}`,
+        );
+        visual.style.setProperty(
+          "--sigil-bearing",
+          `${bearingCurrent + 90}deg`,
+        );
       } else {
         visual.style.setProperty("--mesh-shift-x", `${x * 11}px`);
         visual.style.setProperty("--mesh-shift-y", `${y * 8}px`);
@@ -454,7 +632,8 @@ export default function Home() {
 
       const remaining =
         Math.abs(pointerTarget.x - pointerCurrent.x) +
-        Math.abs(pointerTarget.y - pointerCurrent.y);
+        Math.abs(pointerTarget.y - pointerCurrent.y) +
+        Math.abs(shortestAngle(bearingCurrent, bearingTarget)) / 180;
       if (remaining > 0.002) {
         parallaxFrame = window.requestAnimationFrame(renderParallax);
       } else if (!pointerEngaged) {
@@ -474,15 +653,29 @@ export default function Home() {
       if (event.pointerType === "touch") return;
       const x = event.clientX - visualRect.left;
       const y = event.clientY - visualRect.top;
-      const normalizedX = (x / visualRect.width - 0.55) * 2;
-      const normalizedY = (y / visualRect.height - 0.44) * 2;
+      const normalizedX = Math.max(
+        -1,
+        Math.min(1, (x / visualRect.width - 0.5) * 2),
+      );
+      const normalizedY = Math.max(
+        -1,
+        Math.min(1, (y / visualRect.height - 0.44) * 2),
+      );
+      const relativeX = x - visualRect.width * 0.5;
+      const relativeY = y - visualRect.height * 0.44;
 
       visual.style.setProperty("--pointer-x", `${x}px`);
       visual.style.setProperty("--pointer-y", `${y}px`);
       pointerTarget.x = normalizedX;
       pointerTarget.y = normalizedY;
+      if (Math.hypot(relativeX, relativeY) > 12) {
+        const rawBearing = Math.atan2(relativeY, relativeX) * (180 / Math.PI);
+        bearingTarget += shortestAngle(bearingTarget, rawBearing);
+        updateRuneWake(rawBearing);
+      }
       pointerEngaged = true;
       visual.classList.add("is-pointer-engaged");
+      if (theme === "day") visual.classList.add("is-sigil-guided");
       requestParallax();
 
     };
@@ -491,6 +684,7 @@ export default function Home() {
       pointerEngaged = false;
       pointerTarget.x = 0;
       pointerTarget.y = 0;
+      visual.classList.remove("is-sigil-guided");
       requestParallax();
     };
 
@@ -510,6 +704,10 @@ export default function Home() {
       visual.removeEventListener("pointerleave", resetPointer);
       if (parallaxFrame) window.cancelAnimationFrame(parallaxFrame);
       visual.classList.remove("is-pointer-engaged");
+      visual.classList.remove("is-sigil-guided");
+      runeNodes.forEach((node) => {
+        node.classList.remove("is-rune-awake", "is-rune-near");
+      });
     };
   }, [theme]);
 
@@ -1465,17 +1663,101 @@ export default function Home() {
     };
   }, [sphereMotionReady]);
 
+  const technicalArticles = useMemo(
+    () => articles.filter((article) => (article.contentType || "article") === "article"),
+    [articles],
+  );
+  const labArticles = useMemo(
+    () => articles.filter((article) => article.contentType === "lab"),
+    [articles],
+  );
+  const collectionArticles = useMemo(
+    () => articles.filter((article) => article.contentType === "collection"),
+    [articles],
+  );
+
   const visibleArticles = useMemo(() => {
     const filtered = filter === "全部"
-      ? articles
-      : articles.filter((article) => article.category === filter);
+      ? technicalArticles
+      : technicalArticles.filter((article) => article.category === filter);
     return filtered.map((article) => localizeArticle(article, language));
-  }, [filter, articles, language]);
+  }, [filter, technicalArticles, language]);
 
-  const latestArticle = localizeArticle(
-    articles[0] ?? fallbackArticles[0],
-    language,
-  );
+  const latestSource = articles.find((article) => article.contentType !== "collection");
+  const latestArticle = latestSource ? localizeArticle(latestSource, language) : null;
+
+  const searchEntries = useMemo<SearchEntry[]>(() => {
+    const articleEntries = articles.map((article) => {
+      const localized = localizeArticle(article, language);
+      const contentType = localized.contentType || "article";
+      const routeKey = articleRouteKey(localized);
+      return {
+        id: `article-${localized.id}`,
+        type: contentType,
+        eyebrow:
+          contentType === "lab"
+            ? copy.searchLab
+            : contentType === "collection"
+              ? copy.searchCollection
+              : copy.searchArticle,
+        title: localized.title,
+        description: localized.summary,
+        href:
+          contentType === "collection"
+            ? "#collection"
+            : `/articles/${encodeURIComponent(routeKey)}`,
+        keywords: [
+          localized.title,
+          localized.summary,
+          localized.code,
+          localized.category,
+          ...localized.tags,
+        ].join(" "),
+      };
+    });
+    return articleEntries;
+  }, [articles, copy, language]);
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    if (!query) return searchEntries.slice(0, 7);
+    return searchEntries
+      .filter((entry) => entry.keywords.toLocaleLowerCase().includes(query))
+      .slice(0, 8);
+  }, [searchEntries, searchQuery]);
+
+  useEffect(() => {
+    const header = siteHeader.current;
+    if (!header) return;
+    let frame = 0;
+    let previousY = window.scrollY;
+
+    const updateHeader = () => {
+      frame = 0;
+      const currentY = Math.max(0, window.scrollY);
+      const delta = currentY - previousY;
+      const controlsOpen = menuOpen || searchOpen;
+      header.classList.toggle("is-scrolled", currentY > 28);
+      header.classList.toggle(
+        "is-reading-forward",
+        !controlsOpen && currentY > 240 && delta > 3,
+      );
+      if (controlsOpen || delta < -2 || currentY < 180) {
+        header.classList.remove("is-reading-forward");
+      }
+      previousY = currentY;
+    };
+    const requestUpdate = () => {
+      if (!frame) frame = window.requestAnimationFrame(updateHeader);
+    };
+
+    updateHeader();
+    window.addEventListener("scroll", requestUpdate, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", requestUpdate);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [menuOpen, searchOpen]);
 
   useEffect(() => {
     if (
@@ -1501,6 +1783,7 @@ export default function Home() {
       let currentGlowY = 50;
       let tracking = false;
       let bounds: DOMRect | null = null;
+      let glowResetTimer = 0;
 
       const render = () => {
         frame = 0;
@@ -1525,8 +1808,25 @@ export default function Home() {
           card.classList.remove("is-tilting");
         }
       };
-      const handleEnter = () => {
+      const handleEnter = (event: globalThis.PointerEvent) => {
+        if (glowResetTimer) {
+          window.clearTimeout(glowResetTimer);
+          glowResetTimer = 0;
+        }
         bounds = card.getBoundingClientRect();
+        const entryX = Math.min(
+          1,
+          Math.max(-1, ((event.clientX - bounds.left) / bounds.width - 0.5) * 2),
+        );
+        const entryY = Math.min(
+          1,
+          Math.max(-1, ((event.clientY - bounds.top) / bounds.height - 0.5) * 2),
+        );
+        currentGlowX = targetGlowX = (entryX + 1) * 50;
+        currentGlowY = targetGlowY = (entryY + 1) * 50;
+        card.style.setProperty("--card-glow-x", `${currentGlowX}%`);
+        card.style.setProperty("--card-glow-y", `${currentGlowY}%`);
+        card.classList.remove("is-glow-leaving");
       };
       const handleMove = (event: globalThis.PointerEvent) => {
         if (event.pointerType === "touch") return;
@@ -1550,9 +1850,16 @@ export default function Home() {
         bounds = null;
         targetX = 0;
         targetY = 0;
-        targetGlowX = 50;
-        targetGlowY = 50;
+        targetGlowX = currentGlowX;
+        targetGlowY = currentGlowY;
+        card.classList.add("is-glow-leaving");
         if (!frame) frame = window.requestAnimationFrame(render);
+        glowResetTimer = window.setTimeout(() => {
+          glowResetTimer = 0;
+          targetGlowX = 50;
+          targetGlowY = 50;
+          if (!frame) frame = window.requestAnimationFrame(render);
+        }, 240);
       };
 
       card.addEventListener("pointerenter", handleEnter, { passive: true });
@@ -1562,8 +1869,9 @@ export default function Home() {
         card.removeEventListener("pointerenter", handleEnter);
         card.removeEventListener("pointermove", handleMove);
         card.removeEventListener("pointerleave", handleLeave);
+        if (glowResetTimer) window.clearTimeout(glowResetTimer);
         if (frame) window.cancelAnimationFrame(frame);
-        card.classList.remove("is-tilting");
+        card.classList.remove("is-tilting", "is-glow-leaving");
       };
     });
 
@@ -1608,6 +1916,74 @@ export default function Home() {
     window.history.replaceState(null, "", href);
   };
 
+  const handleArticleNavigation = (
+    event: MouseEvent<HTMLAnchorElement>,
+    articleId: string,
+    source: "latest" | "card" | "lab",
+  ) => {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const href = event.currentTarget.href;
+    setArticleTransitionSource(`${source}:${articleId}`);
+    window.requestAnimationFrame(() => window.location.assign(href));
+  };
+
+  const openSearchEntry = (entry: SearchEntry) => {
+    setSearchOpen(false);
+    if (entry.href.startsWith("#")) {
+      const target = document.getElementById(entry.href.slice(1));
+      if (!target) return;
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({
+          behavior: reducedMotion ? "auto" : "smooth",
+          block: "start",
+        });
+      });
+      window.history.replaceState(null, "", entry.href);
+      return;
+    }
+    window.location.assign(entry.href);
+  };
+
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (!searchResults.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedSearchIndex((index) => (index + 1) % searchResults.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedSearchIndex(
+        (index) => (index - 1 + searchResults.length) % searchResults.length,
+      );
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openSearchEntry(
+        searchResults[Math.min(selectedSearchIndex, searchResults.length - 1)],
+      );
+    }
+  };
+
+  const activeJourneyIndex = Math.max(
+    0,
+    navItems.findIndex((item) => item.href.slice(1) === activeSection),
+  );
+  const activeJourneyNumber = String(activeJourneyIndex + 1).padStart(2, "0");
+
   return (
     <main
       id="top"
@@ -1617,23 +1993,45 @@ export default function Home() {
       <AmbientEffects />
       <LanguageReassembly active={languageSwitching} target={targetLanguage} />
       <span className="page-scroll-progress" aria-hidden="true" />
-      <aside className="journey-rail" aria-hidden="true">
-        <span className="journey-track" />
-        <div>
-          {navItems.map((item, index) => {
-            const sectionId = item.href.slice(1);
-            return (
-              <span
-                className={activeSection === sectionId ? "is-active" : ""}
-                key={item.href}
-              >
-                {String(index + 1).padStart(2, "0")}
-              </span>
-            );
-          })}
+      <nav
+        className="journey-rail liquid-glass liquid-glass--clear"
+        data-liquid-glass
+        aria-label={language === "zh" ? "页面浏览进度" : "Page progress"}
+      >
+        <LiquidGlassLens />
+        <div className="journey-current" aria-live="polite">
+          <strong key={activeSection}>{activeJourneyNumber}</strong>
+          <span>{activeJourneyIndex + 1} / {navItems.length}</span>
         </div>
-        <small>{activeSection.toUpperCase()}</small>
-      </aside>
+        <div className="journey-meter">
+          <span className="journey-track" aria-hidden="true">
+            <span className="journey-progress-fill" />
+          </span>
+          <ol>
+            {navItems.map((item, index) => {
+              const sectionId = item.href.slice(1);
+              const isActive = activeSection === sectionId;
+              const number = String(index + 1).padStart(2, "0");
+              return (
+                <li key={item.href}>
+                  <a
+                    href={item.href}
+                    className={isActive ? "is-active" : ""}
+                    aria-current={isActive ? "location" : undefined}
+                    aria-label={`${number} · ${copy.nav[index]}`}
+                    onClick={handleSectionNavigation}
+                  >
+                    <span className="journey-stop-dot" aria-hidden="true" />
+                    <span className="journey-tooltip" aria-hidden="true">
+                      {copy.nav[index]}
+                    </span>
+                  </a>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </nav>
 
       {sectionJump && (
         <div
@@ -1651,7 +2049,119 @@ export default function Home() {
 
       <ThemeTransition active={transitioning} target={transitionTarget} />
 
-      <header className="site-header">
+      {searchOpen && (
+        <div
+          className="spotlight-overlay"
+          role="presentation"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) setSearchVisibility(false);
+          }}
+        >
+          <section
+            className="spotlight-panel liquid-glass liquid-glass--thick"
+            data-liquid-glass
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="spotlight-title"
+            style={{ viewTransitionName: "spotlight-liquid-glass" }}
+          >
+            <LiquidGlassLens />
+            <header className="spotlight-heading">
+              <div>
+                <span className="spotlight-kicker">MOZELLE / SPOTLIGHT</span>
+                <h2 id="spotlight-title" data-lang-token>{copy.searchTitle}</h2>
+              </div>
+              <button
+                className="spotlight-close"
+                type="button"
+                aria-label={copy.searchClose}
+                onClick={() => setSearchVisibility(false)}
+              >
+                <span aria-hidden="true" />
+              </button>
+            </header>
+            <label className="spotlight-input-shell">
+              <span className="search-glyph" aria-hidden="true" />
+              <input
+                ref={searchInput}
+                type="search"
+                role="combobox"
+                aria-expanded="true"
+                aria-controls="spotlight-results"
+                aria-activedescendant={
+                  searchResults[selectedSearchIndex]
+                    ? `spotlight-${searchResults[selectedSearchIndex].id}`
+                    : undefined
+                }
+                value={searchQuery}
+                placeholder={copy.searchPlaceholder}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setSelectedSearchIndex(0);
+                }}
+                onKeyDown={handleSearchKeyDown}
+              />
+              <kbd>CTRL K · ⌘ K</kbd>
+            </label>
+            <div
+              id="spotlight-results"
+              className="spotlight-results"
+              role="listbox"
+              aria-label={copy.searchTitle}
+            >
+              {searchResults.length ? searchResults.map((entry, index) => (
+                <a
+                  id={`spotlight-${entry.id}`}
+                  className={index === selectedSearchIndex ? "is-selected" : ""}
+                  href={entry.href}
+                  key={entry.id}
+                  role="option"
+                  aria-selected={index === selectedSearchIndex}
+                  onPointerEnter={() => setSelectedSearchIndex(index)}
+                  onClick={(event) => {
+                    if (
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    openSearchEntry(entry);
+                  }}
+                >
+                  <span className={`spotlight-result-icon result-${entry.type}`} aria-hidden="true">
+                    {entry.type === "article" ? "A" : entry.type === "lab" ? "L" : "C"}
+                  </span>
+                  <span className="spotlight-result-copy">
+                    <small>{entry.eyebrow}</small>
+                    <strong data-lang-token>{entry.title}</strong>
+                    <span data-lang-token>{entry.description}</span>
+                  </span>
+                  <span className="spotlight-result-arrow" aria-hidden="true">↗</span>
+                </a>
+              )) : (
+                <div className="spotlight-empty" role="status">
+                  <span aria-hidden="true">⌁</span>
+                  <p data-lang-token>{copy.searchEmpty}</p>
+                </div>
+              )}
+            </div>
+            <footer className="spotlight-footer">
+              <span data-lang-token>{copy.searchHint}</span>
+              <span>↑↓ SELECT · ENTER OPEN · ESC CLOSE</span>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      <header
+        ref={siteHeader}
+        className="site-header liquid-glass liquid-glass--regular"
+        data-liquid-glass
+      >
+        <LiquidGlassLens />
         <a
           className="brand"
           href="#top"
@@ -1705,12 +2215,34 @@ export default function Home() {
 
         <div className="header-controls">
           <button
-            className="language-toggle"
+            className="spotlight-trigger liquid-glass liquid-glass--clear"
+            data-liquid-glass
+            type="button"
+            aria-label={copy.searchLabel}
+            aria-expanded={searchOpen}
+            aria-controls="spotlight-results"
+            style={{
+              viewTransitionName: searchOpen ? "none" : "spotlight-liquid-glass",
+            }}
+            onClick={() => {
+              setMenuOpen(false);
+              setSelectedSearchIndex(0);
+              setSearchVisibility(true);
+            }}
+          >
+            <LiquidGlassLens />
+            <span className="search-glyph" aria-hidden="true" />
+            <kbd>⌘K</kbd>
+          </button>
+          <button
+            className="language-toggle liquid-glass liquid-glass--clear"
+            data-liquid-glass
             type="button"
             onClick={toggleLanguage}
             disabled={languageSwitching}
             aria-label={copy.languageLabel}
           >
+            <LiquidGlassLens />
             <span className={language === "zh" ? "is-active" : ""}>中</span>
             <i aria-hidden="true" />
             <span className={language === "en" ? "is-active" : ""}>EN</span>
@@ -1725,7 +2257,12 @@ export default function Home() {
             aria-label={theme === "day" ? copy.themeDayLabel : copy.themeNightLabel}
             aria-pressed={theme === "night"}
           >
-            <span className="toggle-track" aria-hidden="true">
+            <span
+              className="toggle-track liquid-glass liquid-glass--clear"
+              data-liquid-glass
+              aria-hidden="true"
+            >
+              <LiquidGlassLens />
               <span className="toggle-thumb" />
               <span className="toggle-option toggle-day">
                 <span className="toggle-symbol">☼</span>
@@ -1819,6 +2356,7 @@ export default function Home() {
           <span className="hero-depth-light" />
           <div className="hero-sigil sigil-day">
             <span className="magic-aura" />
+            <span className="magic-directional-field" />
             <svg className="anime-magic" viewBox="0 0 100 100" focusable="false">
               <g className="magic-outer-layer">
                 <circle className="magic-circle magic-circle-outer" cx="50" cy="50" r="47" />
@@ -1826,6 +2364,8 @@ export default function Home() {
                 <circle className="magic-circle magic-circle-main" cx="50" cy="50" r="38" />
                 <path className="magic-arc magic-arc-one" pathLength="1" d="M 14 33 A 40 40 0 0 1 70 15" />
                 <path className="magic-arc magic-arc-two" pathLength="1" d="M 86 67 A 40 40 0 0 1 30 85" />
+              </g>
+              <g className="magic-rune-layer">
                 <circle className="magic-seal" cx="50" cy="5" r="3.4" />
                 <circle className="magic-seal" cx="95" cy="50" r="3.4" />
                 <circle className="magic-seal" cx="50" cy="95" r="3.4" />
@@ -1937,18 +2477,21 @@ export default function Home() {
           )}
         </div>
 
-        <a
-          className="latest-card"
-          href={`/articles/${encodeURIComponent(latestArticle.id)}`}
-          aria-label={copy.latestLabel(latestArticle.title)}
-        >
-          <span className="latest-meta">
-            <span data-lang-token>✥ {copy.latest}</span>
-            <span>{latestArticle.date}</span>
-          </span>
-          <strong data-lang-token>{latestArticle.title}</strong>
-          <span className="latest-arrow" aria-hidden="true">→</span>
-        </a>
+        {latestArticle && (
+          <a
+            className={`latest-card ${articleTransitionSource === `latest:${articleRouteKey(latestArticle)}` ? "is-navigation-source" : ""}`}
+            href={`/articles/${encodeURIComponent(articleRouteKey(latestArticle))}`}
+            aria-label={copy.latestLabel(latestArticle.title)}
+            onClick={(event) => handleArticleNavigation(event, articleRouteKey(latestArticle), "latest")}
+          >
+            <span className="latest-meta">
+              <span data-lang-token>✥ {copy.latest}</span>
+              <span>{latestArticle.date}</span>
+            </span>
+            <strong data-lang-token>{latestArticle.title}</strong>
+            <span className="latest-arrow" aria-hidden="true">→</span>
+          </a>
+        )}
         <a
           className="scroll-cue"
           href="#articles"
@@ -1998,7 +2541,7 @@ export default function Home() {
         <div className="article-grid" aria-live="polite" data-reveal="up">
           {visibleArticles.map((article, index) => (
             <article
-              className="article-card"
+              className={`article-card ${articleTransitionSource === `card:${articleRouteKey(article)}` ? "is-navigation-source" : ""}`}
               key={article.id}
               data-tilt-card
             >
@@ -2007,10 +2550,28 @@ export default function Home() {
                 <span>{article.code}</span>
                 <span>{article.date}</span>
               </div>
-              <div className={`article-visual visual-${(index % 4) + 1}`} aria-hidden="true">
-                <span className="visual-chip" />
-                <span className="visual-wave" />
-                <span className="visual-number">{String(index + 1).padStart(2, "0")}</span>
+              <div
+                className={`article-visual visual-${(index % 4) + 1}${article.coverUrl ? " has-cover" : ""}`}
+                aria-hidden={article.coverUrl ? undefined : "true"}
+              >
+                {article.coverUrl ? (
+                  <button
+                    className="article-card-preview"
+                    type="button"
+                    aria-label={`${language === "zh" ? "预览图片" : "Preview image"}: ${article.title}`}
+                    onClick={() => setPreview({ images: articlePreviewImages(article), activeIndex: 0 })}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={previewMediaUrl(article.coverUrl)} alt={article.title} loading="lazy" decoding="async" />
+                    <span aria-hidden="true">VIEW ↗</span>
+                  </button>
+                ) : (
+                  <>
+                    <span className="visual-chip" />
+                    <span className="visual-wave" />
+                    <span className="visual-number">{String(index + 1).padStart(2, "0")}</span>
+                  </>
+                )}
               </div>
               <div className="article-body">
                 <span className="article-category" data-lang-token>{categoryLabels[language][article.category]}</span>
@@ -2020,13 +2581,22 @@ export default function Home() {
                   <div>
                     {article.tags.map((tag) => <span data-lang-token key={tag}>#{tag}</span>)}
                   </div>
-                  <a href={`/articles/${encodeURIComponent(article.id)}`}>
+                  <a
+                    href={`/articles/${encodeURIComponent(articleRouteKey(article))}`}
+                    onClick={(event) => handleArticleNavigation(event, articleRouteKey(article), "card")}
+                  >
                     <span data-lang-token>{copy.read}</span> <span aria-hidden="true">↗</span>
                   </a>
                 </div>
               </div>
             </article>
           ))}
+          {!visibleArticles.length && (
+            <div className="content-empty-state" role="status">
+              <span>ARCHIVE / EMPTY</span>
+              <p data-lang-token>{language === "zh" ? "当前分类还没有已发布的技术文章。" : "No published technical articles in this category yet."}</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -2050,22 +2620,41 @@ export default function Home() {
             <span>STATUS / ONLINE</span>
           </div>
           <div className="lab-list">
-            {labNotes.map((note, index) => (
-              <article key={note.index}>
-                <span className="lab-index">{note.index}</span>
+            {labArticles.map((sourceArticle, index) => {
+              const article = localizeArticle(sourceArticle, language);
+              const routeKey = articleRouteKey(article);
+              return (
+              <article
+                key={article.id}
+                className={articleTransitionSource === `lab:${routeKey}` ? "is-navigation-source" : ""}
+              >
+                <span className="lab-index">{String(index + 1).padStart(2, "0")}</span>
                 <div>
-                  <h3 data-lang-token>{copy.labNotes[index][0]}</h3>
-                  <p data-lang-token>{copy.labNotes[index][1]}</p>
+                  <h3 data-lang-token>{article.title}</h3>
+                  <p data-lang-token>{article.summary}</p>
                 </div>
-                <strong>{note.value}</strong>
+                <strong>{article.code} / {article.readTime}</strong>
                 <span className="lab-arrow" aria-hidden="true">↗</span>
+                <a
+                  className="lab-entry-link"
+                  href={`/articles/${encodeURIComponent(routeKey)}`}
+                  aria-label={`${copy.read} ${article.title}`}
+                  onClick={(event) => handleArticleNavigation(event, routeKey, "lab")}
+                />
               </article>
-            ))}
+              );
+            })}
+            {!labArticles.length && (
+              <div className="content-empty-state" role="status">
+                <span>LAB / STANDBY</span>
+                <p data-lang-token>{language === "zh" ? "实验记录正在整理，发布后会出现在这里。" : "Lab records will appear here after publication."}</p>
+              </div>
+            )}
           </div>
           <div className="console-footer">
-            <span>LAST SYNC / 2026.07.12</span>
+            <span>LAST SYNC / {labArticles[0]?.date ?? "--"}</span>
             <span className="console-line" />
-            <span>3 ACTIVE TOPICS</span>
+            <span data-lang-token>{language === "zh" ? `${labArticles.length} 项实验记录` : `${labArticles.length} LAB RECORDS`}</span>
           </div>
         </div>
       </section>
@@ -2085,25 +2674,49 @@ export default function Home() {
           <p data-lang-token>{copy.collectionIntro}</p>
         </div>
         <div className="collection-grid" data-reveal="up">
-          {collections.map((item, index) => (
-            <article
-              className={`collection-card ${item.className}`}
-              key={item.number}
-              data-tilt-card
-            >
-              <span className="card-specular" aria-hidden="true" />
-              <span className="collection-number">{item.number}</span>
-              <div className="collection-art" aria-hidden="true">
-                <span className="collection-orbit" />
-                <span className="collection-sigil" />
-              </div>
-              <div className="collection-copy">
-                <span>{item.subtitle}</span>
-                <h3 data-lang-token>{copy.collections[index][0]}</h3>
-                <p data-lang-token>{copy.collections[index][1]}</p>
-              </div>
-            </article>
-          ))}
+          {collectionArticles.map((sourceArticle, index) => {
+            const article = localizeArticle(sourceArticle, language);
+            const images = articlePreviewImages(article);
+            const visualClass = collectionVisuals[index % collectionVisuals.length];
+            return (
+              <article
+                className={`collection-card ${visualClass}${images.length ? " has-media" : ""}`}
+                key={article.id}
+                data-tilt-card
+              >
+                <span className="card-specular" aria-hidden="true" />
+                <span className="collection-number">{String(index + 1).padStart(2, "0")}</span>
+                {images.length ? (
+                  <button
+                    className="collection-media-button"
+                    type="button"
+                    aria-label={`${language === "zh" ? "预览图片" : "Preview images"}: ${article.title}`}
+                    onClick={() => setPreview({ images, activeIndex: 0 })}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={previewMediaUrl(images[0].src)} alt={images[0].alt} loading="lazy" decoding="async" />
+                    <span className="collection-preview-count">{images.length} / VIEW</span>
+                  </button>
+                ) : (
+                  <div className="collection-art" aria-hidden="true">
+                    <span className="collection-orbit" />
+                    <span className="collection-sigil" />
+                  </div>
+                )}
+                <div className="collection-copy">
+                  <span data-lang-token>{article.code} / {article.tags[0] ?? "ARCHIVE"}</span>
+                  <h3 data-lang-token>{article.title}</h3>
+                  <p data-lang-token>{article.summary}</p>
+                </div>
+              </article>
+            );
+          })}
+          {!collectionArticles.length && (
+            <div className="content-empty-state" role="status">
+              <span>COLLECTION / EMPTY</span>
+              <p data-lang-token>{language === "zh" ? "次元收藏暂未公开。" : "No collections are public yet."}</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -2154,6 +2767,18 @@ export default function Home() {
           </button>
         </div>
       </footer>
+
+      {preview && (
+        <ImageLightbox
+          images={preview.images}
+          activeIndex={preview.activeIndex}
+          onChange={(activeIndex) => setPreview((current) => current ? { ...current, activeIndex } : current)}
+          onClose={() => setPreview(null)}
+          labels={language === "zh"
+            ? { dialog: "图片预览", openOriginal: "打开原图 ↗", close: "关闭图片预览", previous: "上一张图片", next: "下一张图片" }
+            : { dialog: "Image preview", openOriginal: "OPEN ORIGINAL ↗", close: "Close image preview", previous: "Previous image", next: "Next image" }}
+        />
+      )}
 
     </main>
   );

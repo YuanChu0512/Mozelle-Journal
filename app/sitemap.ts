@@ -1,15 +1,20 @@
 import type { MetadataRoute } from "next";
 import { fallbackArticles } from "./article-data";
+import { loadManagedPublicPosts } from "./public-posts";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export const dynamic = "force-dynamic";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const managedPosts = await loadManagedPublicPosts();
+  const articles = managedPosts ?? fallbackArticles;
   return [
     {
       url: "https://www.mozelle.top/",
       changeFrequency: "weekly",
       priority: 1,
     },
-    ...fallbackArticles.map((article) => ({
-      url: `https://www.mozelle.top/articles/${encodeURIComponent(article.id)}`,
+    ...articles.filter((article) => article.contentType !== "collection").map((article) => ({
+      url: `https://www.mozelle.top/articles/${encodeURIComponent(article.slug ?? article.id)}`,
       lastModified: article.date.replaceAll(".", "-"),
       changeFrequency: "monthly" as const,
       priority: 0.75,

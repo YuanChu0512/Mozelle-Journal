@@ -53,6 +53,11 @@ services:
       context: .
       target: web
     restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_INTERNAL_ORIGIN: http://api:8788
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
