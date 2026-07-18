@@ -83,3 +83,19 @@ CREATE TABLE IF NOT EXISTS site_settings (
   setting_value JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS page_views (
+  id BIGSERIAL PRIMARY KEY,
+  ip_address INET NOT NULL,
+  path TEXT NOT NULL,
+  visited_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS page_views_visited_idx
+  ON page_views (visited_at DESC);
+
+CREATE INDEX IF NOT EXISTS page_views_ip_visited_idx
+  ON page_views (ip_address, visited_at DESC);
+
+CREATE INDEX IF NOT EXISTS page_views_path_visited_idx
+  ON page_views (path, visited_at DESC);

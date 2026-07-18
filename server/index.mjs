@@ -15,6 +15,11 @@ import {
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  isAutomatedUserAgent,
+  normalizeAnalyticsPath,
+  normalizeVisitorIp,
+} from "./analytics.mjs";
 import { sanitizeImageMetadata } from "./image-sanitizer.mjs";
 
 const serverDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -59,6 +64,7 @@ const app = Fastify({
   trustProxy: true,
   bodyLimit: 2 * 1024 * 1024,
 });
+let lastAnalyticsCleanupAt = 0;
 
 await mkdir(uploadDirectory, { recursive: true });
 await app.register(cookie);
@@ -168,6 +174,17 @@ async function verifyMutationOrigin(request, reply) {
   const origin = request.headers.origin;
   if (origin && origin.replace(/\/$/, "") !== publicOrigin) {
     return reply.code(403).send({ error: "INVALID_ORIGIN", message: "请求来源不受信任。" });
+  }
+}
+
+async function cleanupAnalyticsIfNeeded() {
+  const now = Date.now();
+  if (now - lastAnalyticsCleanupAt < 6 * 60 * 60 * 1000) return;
+  lastAnalyticsCleanupAt = now;
+  try {
+    await pool.query("DELETE FROM page_views WHERE visited_at < NOW() - INTERVAL '90 days'");
+  } catch (error) {
+    app.log.error({ error }, "Unable to remove expired analytics records");
   }
 }
 
@@ -735,6 +752,33 @@ app.post(
   },
 );
 
+app.post(
+  "/api/analytics/view",
+  { preHandler: [verifyMutationOrigin] },
+  async (request, reply) => {
+    const pagePath = normalizeAnalyticsPath(request.body?.path);
+    const visitorIp = normalizeVisitorIp(request.ip);
+    const userAgent = request.headers["user-agent"];
+    if (!pagePath || !visitorIp || isAutomatedUserAgent(userAgent)) {
+      return reply.code(204).send();
+    }
+
+    await pool.query(
+      `INSERT INTO page_views (ip_address, path)
+       SELECT $1::inet, $2
+       WHERE NOT EXISTS (
+         SELECT 1 FROM page_views
+         WHERE ip_address = $1::inet
+           AND path = $2
+           AND visited_at > NOW() - INTERVAL '30 seconds'
+       )`,
+      [visitorIp, pagePath],
+    );
+    void cleanupAnalyticsIfNeeded();
+    return reply.code(204).send();
+  },
+);
+
 app.get("/api/posts", async (_request, reply) => {
   const { rows } = await pool.query(
     `SELECT * FROM posts
@@ -768,6 +812,86 @@ app.get("/api/settings", async (_request, reply) => {
 app.get("/api/admin/posts", { preHandler: [requireAdmin] }, async () => {
   const { rows } = await pool.query("SELECT * FROM posts ORDER BY updated_at DESC");
   return { posts: rows.map(mapPost) };
+});
+
+app.get("/api/admin/analytics", { preHandler: [requireAdmin] }, async (_request, reply) => {
+  const [summaryResult, dailyResult, topPagesResult, recentResult] = await Promise.all([
+    pool.query(
+      `SELECT
+         COUNT(*)::int AS total_views,
+         COUNT(DISTINCT ip_address)::int AS unique_visitors,
+         COUNT(*) FILTER (
+           WHERE (visited_at AT TIME ZONE 'Asia/Shanghai')::date =
+             (NOW() AT TIME ZONE 'Asia/Shanghai')::date
+         )::int AS today_views,
+         COUNT(DISTINCT ip_address) FILTER (
+           WHERE (visited_at AT TIME ZONE 'Asia/Shanghai')::date =
+             (NOW() AT TIME ZONE 'Asia/Shanghai')::date
+         )::int AS today_visitors,
+         COUNT(*) FILTER (
+           WHERE visited_at >= NOW() - INTERVAL '7 days'
+         )::int AS week_views
+       FROM page_views`,
+    ),
+    pool.query(
+      `WITH days AS (
+         SELECT generate_series(
+           (NOW() AT TIME ZONE 'Asia/Shanghai')::date - 13,
+           (NOW() AT TIME ZONE 'Asia/Shanghai')::date,
+           INTERVAL '1 day'
+         )::date AS day
+       )
+       SELECT
+         TO_CHAR(days.day, 'YYYY-MM-DD') AS date,
+         COUNT(page_views.id)::int AS views,
+         COUNT(DISTINCT page_views.ip_address)::int AS visitors
+       FROM days
+       LEFT JOIN page_views
+         ON (page_views.visited_at AT TIME ZONE 'Asia/Shanghai')::date = days.day
+       GROUP BY days.day
+       ORDER BY days.day`,
+    ),
+    pool.query(
+      `SELECT
+         path,
+         COUNT(*)::int AS views,
+         COUNT(DISTINCT ip_address)::int AS visitors
+       FROM page_views
+       WHERE visited_at >= NOW() - INTERVAL '30 days'
+       GROUP BY path
+       ORDER BY views DESC, path ASC
+       LIMIT 10`,
+    ),
+    pool.query(
+      `SELECT
+         ip_address::text AS ip,
+         path,
+         visited_at
+       FROM page_views
+       ORDER BY visited_at DESC
+       LIMIT 100`,
+    ),
+  ]);
+
+  const summary = summaryResult.rows[0] ?? {};
+  reply.header("cache-control", "private, no-store");
+  return {
+    retentionDays: 90,
+    summary: {
+      totalViews: summary.total_views ?? 0,
+      uniqueVisitors: summary.unique_visitors ?? 0,
+      todayViews: summary.today_views ?? 0,
+      todayVisitors: summary.today_visitors ?? 0,
+      weekViews: summary.week_views ?? 0,
+    },
+    daily: dailyResult.rows,
+    topPages: topPagesResult.rows,
+    recent: recentResult.rows.map((row) => ({
+      ip: row.ip,
+      path: row.path,
+      visitedAt: row.visited_at?.toISOString?.() ?? row.visited_at,
+    })),
+  };
 });
 
 app.post(

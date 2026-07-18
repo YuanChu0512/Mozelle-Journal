@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { fallbackArticles } from "../article-data";
 import ImageLightbox, { type LightboxImage } from "../image-lightbox";
@@ -10,7 +10,7 @@ import { MarkdownPreview } from "./markdown-preview";
 import "./admin.css";
 
 type AdminTheme = "day" | "night";
-type Section = "dashboard" | "posts" | "editor" | "media" | "settings";
+type Section = "dashboard" | "analytics" | "posts" | "editor" | "media" | "settings";
 type PostStatus = "draft" | "published" | "scheduled";
 type ContentType = "article" | "lab" | "collection";
 
@@ -82,12 +82,40 @@ type SiteSettings = {
   defaultAuthor: string;
 };
 
+type AnalyticsPayload = {
+  retentionDays: number;
+  summary: {
+    totalViews: number;
+    uniqueVisitors: number;
+    todayViews: number;
+    todayVisitors: number;
+    weekViews: number;
+  };
+  daily: Array<{ date: string; views: number; visitors: number }>;
+  topPages: Array<{ path: string; views: number; visitors: number }>;
+  recent: Array<{ ip: string; path: string; visitedAt: string }>;
+};
+
 const defaultSettings: SiteSettings = {
   siteTitle: "Mozelle Journal",
   tagline: "在旅途与源石之间，持续记录。",
   bio: "电子专业学生，记录硬件、超频、游戏、Cosplay 与二次元世界。",
   defaultCategory: "电子",
   defaultAuthor: "Mozelle",
+};
+
+const emptyAnalytics: AnalyticsPayload = {
+  retentionDays: 90,
+  summary: {
+    totalViews: 0,
+    uniqueVisitors: 0,
+    todayViews: 0,
+    todayVisitors: 0,
+    weekViews: 0,
+  },
+  daily: [],
+  topPages: [],
+  recent: [],
 };
 
 const builtInAssets: MediaAsset[] = [
@@ -382,10 +410,11 @@ const emptyPost = (contentType: ContentType = "article"): AdminPost => ({
 
 const navItems: Array<{ id: Section; label: string; index: string }> = [
   { id: "dashboard", label: "控制台", index: "01" },
-  { id: "posts", label: "内容管理", index: "02" },
-  { id: "editor", label: "内容编辑", index: "03" },
-  { id: "media", label: "媒体库", index: "04" },
-  { id: "settings", label: "站点设置", index: "05" },
+  { id: "analytics", label: "访问统计", index: "02" },
+  { id: "posts", label: "内容管理", index: "03" },
+  { id: "editor", label: "内容编辑", index: "04" },
+  { id: "media", label: "媒体库", index: "05" },
+  { id: "settings", label: "站点设置", index: "06" },
 ];
 
 function formatDate(value: string | null): string {
@@ -395,6 +424,17 @@ function formatDate(value: string | null): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatVisitDate(value: string): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
   }).format(new Date(value));
 }
 
@@ -436,6 +476,9 @@ export default function AdminPage() {
   const [authError, setAuthError] = useState("");
   const [authenticating, setAuthenticating] = useState(false);
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
+  const [analytics, setAnalytics] = useState<AnalyticsPayload>(emptyAnalytics);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
@@ -443,6 +486,23 @@ export default function AdminPage() {
   const [contentTypeFilter, setContentTypeFilter] = useState<"all" | ContentType>("all");
   const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; index: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const loadAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    setAnalyticsError("");
+    try {
+      const response = await fetch("/api/admin/analytics", {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Analytics unavailable");
+      setAnalytics((await response.json()) as AnalyticsPayload);
+    } catch {
+      setAnalyticsError("访问统计暂时无法读取，请稍后重试。");
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("mozelle-admin-theme");
@@ -496,6 +556,13 @@ export default function AdminPage() {
   }, [session]);
 
   useEffect(() => {
+    if (session !== "authenticated" || section !== "analytics") return;
+    queueMicrotask(() => void loadAnalytics());
+    const timer = window.setInterval(() => void loadAnalytics(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadAnalytics, section, session]);
+
+  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(""), 3200);
     return () => window.clearTimeout(timer);
@@ -517,6 +584,11 @@ export default function AdminPage() {
   const filteredPosts = useMemo(
     () => posts.filter((post) => contentTypeFilter === "all" || post.contentType === contentTypeFilter),
     [contentTypeFilter, posts],
+  );
+
+  const peakTraffic = useMemo(
+    () => Math.max(1, ...analytics.daily.map((item) => item.views)),
+    [analytics.daily],
   );
 
   const editorCopy = editorLocale === "zh"
@@ -1090,10 +1162,110 @@ export default function AdminPage() {
             </section>
           )}
 
+          {section === "analytics" && (
+            <section className="analytics-view">
+              <div className="view-heading">
+                <div>
+                  <span>02 / TRAFFIC</span>
+                  <h1>访问统计</h1>
+                  <p>浏览人数以独立 IP 统计；IP 后显示其访问地址与最近访问时间。</p>
+                </div>
+                <button
+                  type="button"
+                  className="primary-action"
+                  disabled={analyticsLoading}
+                  onClick={() => void loadAnalytics()}
+                >
+                  {analyticsLoading ? "读取中…" : "刷新数据"}
+                </button>
+              </div>
+
+              <div className="stat-grid analytics-stat-grid">
+                {[
+                  ["累计浏览量", analytics.summary.totalViews, "PAGE VIEWS"],
+                  ["独立访客 IP", analytics.summary.uniqueVisitors, "VISITORS"],
+                  ["今日浏览 / 人数", `${analytics.summary.todayViews} / ${analytics.summary.todayVisitors}`, "TODAY"],
+                  ["近 7 天浏览", analytics.summary.weekViews, "7 DAYS"],
+                ].map(([label, value, meta]) => (
+                  <article key={label}>
+                    <span>{meta}</span>
+                    <strong>{typeof value === "number" ? value.toLocaleString("zh-CN") : value}</strong>
+                    <p>{label}</p>
+                    <i />
+                  </article>
+                ))}
+              </div>
+
+              {analyticsError && <p className="analytics-error">{analyticsError}</p>}
+
+              <section className="panel analytics-traffic-panel">
+                <div className="panel-heading">
+                  <div><span>14 DAY SIGNAL</span><h2>访问趋势</h2></div>
+                  <small>柱形为浏览量，亮点为独立 IP</small>
+                </div>
+                <div className="analytics-chart" aria-label="最近十四天访问趋势">
+                  {analytics.daily.map((item) => (
+                    <div className="analytics-day" key={item.date} title={`${item.date}：${item.views} 次浏览，${item.visitors} 个 IP`}>
+                      <div className="analytics-bar">
+                        <i style={{ height: `${Math.max(3, (item.views / peakTraffic) * 100)}%` }} />
+                        <b style={{ bottom: `${Math.max(3, (item.visitors / peakTraffic) * 100)}%` }} />
+                      </div>
+                      <strong>{item.views}</strong>
+                      <span>{item.date.slice(5)}</span>
+                    </div>
+                  ))}
+                  {!analytics.daily.length && <p className="analytics-empty">尚无访问数据</p>}
+                </div>
+              </section>
+
+              <div className="analytics-columns">
+                <section className="panel analytics-recent-panel">
+                  <div className="panel-heading">
+                    <div><span>RECENT VISITORS</span><h2>最近访问 IP 与地址</h2></div>
+                    <small>最近 100 条</small>
+                  </div>
+                  <div className="analytics-visit-head" aria-hidden="true">
+                    <span>IP</span><span>访问地址</span><span>时间</span>
+                  </div>
+                  <div className="analytics-visit-list">
+                    {analytics.recent.map((visit, index) => (
+                      <article key={`${visit.ip}-${visit.path}-${visit.visitedAt}-${index}`}>
+                        <code>{visit.ip}</code>
+                        <a href={visit.path} target="_blank" rel="noreferrer">{visit.path}</a>
+                        <time>{formatVisitDate(visit.visitedAt)}</time>
+                      </article>
+                    ))}
+                    {!analytics.recent.length && <p className="analytics-empty">尚未记录到前台访问</p>}
+                  </div>
+                </section>
+
+                <section className="panel analytics-pages-panel">
+                  <div className="panel-heading">
+                    <div><span>TOP ROUTES / 30 DAYS</span><h2>热门访问地址</h2></div>
+                  </div>
+                  <div className="analytics-page-list">
+                    {analytics.topPages.map((page, index) => (
+                      <article key={page.path}>
+                        <span>{String(index + 1).padStart(2, "0")}</span>
+                        <div><a href={page.path} target="_blank" rel="noreferrer">{page.path}</a><small>{page.visitors} 个独立 IP</small></div>
+                        <strong>{page.views}</strong>
+                      </article>
+                    ))}
+                    {!analytics.topPages.length && <p className="analytics-empty">暂无热门地址数据</p>}
+                  </div>
+                </section>
+              </div>
+
+              <p className="analytics-retention">
+                仅统计前台页面；后台、API、静态资源和常见机器人不会计入。访问记录保留 {analytics.retentionDays} 天。
+              </p>
+            </section>
+          )}
+
           {section === "posts" && (
             <section className="posts-view">
               <div className="view-heading">
-                <div><span>02 / CONTENT</span><h1>内容管理</h1><p>统一管理技术文章、实验笔记、次元收藏与发布计划。</p></div>
+                <div><span>03 / CONTENT</span><h1>内容管理</h1><p>统一管理技术文章、实验笔记、次元收藏与发布计划。</p></div>
                 <div className="content-list-actions">
                   <label className="content-type-filter">
                     <span className="sr-only">筛选内容类型</span>
@@ -1131,7 +1303,7 @@ export default function AdminPage() {
           {section === "editor" && (
             <section className="editor-view">
               <div className="editor-heading">
-                <div><span>03 / EDITOR</span><h1>{draft.id ? "编辑" : "新建"}{contentTypeLabels[draft.contentType]}</h1><p>{saving ? "正在保存…" : `上次更新：${formatDate(draft.updatedAt)}`}</p></div>
+                <div><span>04 / EDITOR</span><h1>{draft.id ? "编辑" : "新建"}{contentTypeLabels[draft.contentType]}</h1><p>{saving ? "正在保存…" : `上次更新：${formatDate(draft.updatedAt)}`}</p></div>
                 <div><button type="button" onClick={() => persistPost("draft")}>保存草稿</button><button type="button" className="primary-action" onClick={() => persistPost("published")}>发布内容</button></div>
               </div>
               <div className="content-type-selector" aria-label="内容类型">
@@ -1294,7 +1466,7 @@ export default function AdminPage() {
 
           {section === "media" && (
             <section className="media-view">
-              <div className="view-heading"><div><span>04 / ASSETS</span><h1>媒体库</h1><p>预览原图，或将图片插入正文、设为主视觉、加入当前内容图库。</p></div><button className="primary-action" onClick={() => fileInput.current?.click()}>↑ 上传图片</button></div>
+              <div className="view-heading"><div><span>05 / ASSETS</span><h1>媒体库</h1><p>预览原图，或将图片插入正文、设为主视觉、加入当前内容图库。</p></div><button className="primary-action" onClick={() => fileInput.current?.click()}>↑ 上传图片</button></div>
               <div className="upload-dropzone" onClick={() => fileInput.current?.click()}><span>◇</span><strong>点击选择图片</strong><p>支持 JPEG、PNG、WebP 和 GIF，单张不超过 10 MB<br />上传时自动清除可识别的 EXIF、定位与文本元数据</p></div>
               {assets.length ? (
                 <div className="media-grid">
@@ -1328,7 +1500,7 @@ export default function AdminPage() {
 
           {section === "settings" && (
             <section className="settings-view">
-              <div className="view-heading"><div><span>05 / CONFIG</span><h1>站点设置</h1><p>接入 VPS API 后，这些内容会保存到 PostgreSQL。</p></div><button className="primary-action" disabled={saving} onClick={saveSettings}>{saving ? "保存中…" : "保存设置"}</button></div>
+              <div className="view-heading"><div><span>06 / CONFIG</span><h1>站点设置</h1><p>接入 VPS API 后，这些内容会保存到 PostgreSQL。</p></div><button className="primary-action" disabled={saving} onClick={saveSettings}>{saving ? "保存中…" : "保存设置"}</button></div>
               <div className="settings-grid"><section className="panel"><h2>基本信息</h2><label><span>网站名称</span><input value={settings.siteTitle} onChange={(event) => setSettings((current) => ({ ...current, siteTitle: event.target.value }))} /></label><label><span>网站副标题</span><input value={settings.tagline} onChange={(event) => setSettings((current) => ({ ...current, tagline: event.target.value }))} /></label><label><span>个人介绍</span><textarea rows={5} value={settings.bio} onChange={(event) => setSettings((current) => ({ ...current, bio: event.target.value }))} /></label></section><section className="panel"><h2>发布偏好</h2><label><span>默认分类</span><select value={settings.defaultCategory} onChange={(event) => setSettings((current) => ({ ...current, defaultCategory: event.target.value }))}><option>电子</option><option>超频</option><option>硬件</option><option>游戏与次元</option></select></label><label><span>默认作者</span><input value={settings.defaultAuthor} onChange={(event) => setSettings((current) => ({ ...current, defaultAuthor: event.target.value }))} /></label><div className="settings-note"><strong>修订记录已启用</strong><p>每次更新文章前，服务端会自动保留旧版本，最多可由接口读取最近 30 个版本。</p></div><div className="settings-note"><strong>图片安全检查已启用</strong><p>上传时会核验文件头，仅允许 JPEG、PNG、WebP 和 GIF。</p></div></section></div>
             </section>
           )}
