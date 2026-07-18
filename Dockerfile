@@ -12,6 +12,7 @@ COPY . .
 # only when the package does not include one.
 RUN mkdir -p .openai \
     && if [ ! -f .openai/hosting.json ]; then printf '{}\n' > .openai/hosting.json; fi \
+    && chmod +x scripts/*.sh \
     && NODE_ENV=production npm run build
 
 FROM node:22-bookworm-slim AS web
