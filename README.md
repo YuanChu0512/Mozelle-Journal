@@ -28,11 +28,18 @@
 
 ```mermaid
 flowchart LR
-  Browser[浏览器] --> Caddy[Caddy / HTTPS]
-  Caddy --> Web[Vinext Web]
-  Caddy --> API[Fastify API]
-  API --> DB[(PostgreSQL)]
-  API --> Media[(Uploads Volume)]
+  browser["浏览器"]
+  caddy["Caddy / HTTPS"]
+  web["Vinext Web"]
+  api["Fastify API"]
+  database[("PostgreSQL")]
+  media[("Uploads Volume")]
+
+  browser --> caddy
+  caddy --> web
+  caddy --> api
+  api --> database
+  api --> media
 ```
 
 ## 仓库内容边界
